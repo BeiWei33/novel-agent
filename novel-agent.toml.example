@@ -1,0 +1,6 @@
+[model]
+provider = "openai"
+model = "gpt-5"
+
+[storage]
+database_url = "sqlite://novel-agent.db"
