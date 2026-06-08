@@ -56,7 +56,11 @@ pub struct Novel {
 }
 
 impl Novel {
-    pub fn draft(title: impl Into<String>, genre: impl Into<String>, platform: TargetPlatform) -> Self {
+    pub fn draft(
+        title: impl Into<String>,
+        genre: impl Into<String>,
+        platform: TargetPlatform,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: NovelId::new(),
@@ -88,6 +92,8 @@ pub struct NovelBible {
     pub world_rules: Vec<String>,
     pub constraints: Vec<String>,
     pub opening_strategy: OpeningStrategy,
+    #[serde(default)]
+    pub platform_profile: Option<PlatformProfile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +107,17 @@ pub struct OpeningStrategy {
     pub first_scene: String,
     pub first_conflict: String,
     pub first_three_chapters_goal: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformProfile {
+    pub target_platform: TargetPlatform,
+    pub opening_speed: String,
+    pub setup_ratio: f32,
+    pub dialogue_ratio: f32,
+    pub payoff_frequency: String,
+    pub cliffhanger_strength: String,
+    pub review_bias: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

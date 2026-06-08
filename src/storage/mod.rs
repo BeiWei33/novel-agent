@@ -1,5 +1,7 @@
 mod sqlite;
 
 pub use sqlite::{
-    CharacterRepository, ChapterRepository, NovelRepository, ReviewReportRepository, SqliteStorage,
+    AgentRunRepository, ChapterRepository, ChapterVersionRepository, CharacterRepository,
+    ContinuityReportRepository, FactRepository, NovelRepository, ReviewReportRepository,
+    SqliteStorage, WorldSettingRepository,
 };

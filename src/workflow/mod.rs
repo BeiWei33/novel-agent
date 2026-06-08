@@ -1,3 +1,4 @@
+mod agent_runner;
 mod chapter_generation;
 mod novel_creation;
 

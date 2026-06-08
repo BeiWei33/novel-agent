@@ -4,6 +4,8 @@
 
 ## 输入
 
+以下字段位于运行时 `AgentInputEnvelope.payload`。
+
 ```json
 {
   "chapter_draft": {},
@@ -27,18 +29,21 @@
 
 ```json
 {
-  "styled_chapter": {
-    "title": "章节标题",
-    "content": "润色后的正文",
-    "summary": "如有必要，更新后的摘要",
-    "changes": [
-      {
-        "type": "pacing | dialogue | description | clarity | tone",
-        "description": "修改说明"
-      }
-    ],
-    "preserved_facts": ["确认保留的关键事实"],
-    "style_notes": ["后续风格注意事项"]
+  "role": "style",
+  "structured": {
+    "styled_chapter": {
+      "title": "章节标题",
+      "content": "润色后的正文",
+      "summary": "如有必要，更新后的摘要",
+      "changes": [
+        {
+          "type": "pacing | dialogue | description | clarity | tone",
+          "description": "修改说明"
+        }
+      ],
+      "preserved_facts": ["确认保留的关键事实"],
+      "style_notes": ["后续风格注意事项"]
+    }
   },
   "raw_notes": ""
 }
@@ -49,4 +54,3 @@
 - 不能删除 Chapter Writer 已写入的关键剧情推进。
 - 不能新增会影响连续性的重大事实。
 - 润色后必须比原文更紧凑、更自然、更有章节期待。
-

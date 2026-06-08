@@ -4,6 +4,8 @@
 
 ## 输入
 
+以下字段位于运行时 `AgentInputEnvelope.payload`。
+
 ```json
 {
   "idea": "原始创意",
@@ -28,38 +30,41 @@
 
 ```json
 {
-  "characters": [
-    {
-      "id_hint": "protagonist",
-      "name": "姓名",
-      "role": "protagonist | antagonist | ally | rival | mentor | love_interest | supporting",
-      "identity": "身份",
-      "personality": ["性格关键词"],
-      "desire": "表层欲望",
-      "motivation": "深层动机",
-      "secret": "秘密或隐藏信息，没有则写空字符串",
-      "abilities": ["能力、资源或优势"],
-      "limitations": ["弱点、限制或代价"],
-      "current_state": "故事开始时的状态",
-      "relationship_map": [
-        {
-          "target": "另一个角色名",
-          "relationship": "关系",
-          "tension": "关系张力"
-        }
-      ],
-      "arc": {
-        "start": "初始状态",
-        "turning_points": ["关键转折"],
-        "expected_end": "阶段终点"
-      },
-      "first_appearance_chapter": 1,
-      "chapter_1_to_30_plan": ["前 30 章中的作用"]
-    }
-  ],
-  "relationship_overview": "主要人物关系总览",
-  "consistency_rules": ["后续写作不能违背的人物规则"],
-  "risk_notes": ["人物塑造风险"],
+  "role": "character",
+  "structured": {
+    "characters": [
+      {
+        "id_hint": "protagonist",
+        "name": "姓名",
+        "role": "protagonist | antagonist | ally | rival | mentor | love_interest | supporting",
+        "identity": "身份",
+        "personality": ["性格关键词"],
+        "desire": "表层欲望",
+        "motivation": "深层动机",
+        "secret": "秘密或隐藏信息，没有则写空字符串",
+        "abilities": ["能力、资源或优势"],
+        "limitations": ["弱点、限制或代价"],
+        "current_state": "故事开始时的状态",
+        "relationship_map": [
+          {
+            "target": "另一个角色名",
+            "relationship": "关系",
+            "tension": "关系张力"
+          }
+        ],
+        "arc": {
+          "start": "初始状态",
+          "turning_points": ["关键转折"],
+          "expected_end": "阶段终点"
+        },
+        "first_appearance_chapter": 1,
+        "chapter_1_to_30_plan": ["前 30 章中的作用"]
+      }
+    ],
+    "relationship_overview": "主要人物关系总览",
+    "consistency_rules": ["后续写作不能违背的人物规则"],
+    "risk_notes": ["人物塑造风险"]
+  },
   "raw_notes": ""
 }
 ```
@@ -69,4 +74,3 @@
 - 主角必须有清晰欲望和主动行动能力。
 - 反派或阻力人物不能只负责作恶，必须有自洽目标。
 - 配角必须能制造帮助、压力、误解、诱惑或代价。
-

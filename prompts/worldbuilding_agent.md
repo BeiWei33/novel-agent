@@ -4,6 +4,8 @@
 
 ## 输入
 
+以下字段位于运行时 `AgentInputEnvelope.payload`。
+
 ```json
 {
   "idea": "原始创意",
@@ -27,43 +29,46 @@
 
 ```json
 {
-  "world_setting": {
-    "genre_type": "都市 | 玄幻 | 仙侠 | 科幻 | 末世 | 游戏 | 无限流 | 其他",
-    "overview": "世界观总述",
-    "power_system": {
-      "name": "体系名称",
-      "levels": ["等级或阶段"],
-      "rules": ["规则"],
-      "costs": ["代价"],
-      "limits": ["限制"]
+  "role": "worldbuilding",
+  "structured": {
+    "world_setting": {
+      "genre_type": "都市 | 玄幻 | 仙侠 | 科幻 | 末世 | 游戏 | 无限流 | 其他",
+      "overview": "世界观总述",
+      "power_system": {
+        "name": "体系名称",
+        "levels": ["等级或阶段"],
+        "rules": ["规则"],
+        "costs": ["代价"],
+        "limits": ["限制"]
+      },
+      "organizations": [
+        {
+          "name": "组织名",
+          "role": "剧情功能",
+          "resources": ["资源"],
+          "conflicts": ["冲突"]
+        }
+      ],
+      "locations": [
+        {
+          "name": "地点名",
+          "description": "描述",
+          "story_use": "剧情用途"
+        }
+      ],
+      "taboos": ["禁止事项或世界内禁忌"],
+      "hard_rules": ["后续不能随意推翻的规则"]
     },
-    "organizations": [
+    "facts_to_seed": [
       {
-        "name": "组织名",
-        "role": "剧情功能",
-        "resources": ["资源"],
-        "conflicts": ["冲突"]
+        "subject": "主体",
+        "predicate": "关系",
+        "object": "客体",
+        "importance": 1
       }
     ],
-    "locations": [
-      {
-        "name": "地点名",
-        "description": "描述",
-        "story_use": "剧情用途"
-      }
-    ],
-    "taboos": ["禁止事项或世界内禁忌"],
-    "hard_rules": ["后续不能随意推翻的规则"]
+    "risk_notes": ["设定风险"]
   },
-  "facts_to_seed": [
-    {
-      "subject": "主体",
-      "predicate": "关系",
-      "object": "客体",
-      "importance": 1
-    }
-  ],
-  "risk_notes": ["设定风险"],
   "raw_notes": ""
 }
 ```
@@ -73,4 +78,3 @@
 - 不要堆设定名词，必须解释设定如何制造冲突或回报。
 - 能力体系必须有边界和代价，避免主角无条件解决问题。
 - 对 MVP 来说，优先提供前 30 章会用到的设定。
-

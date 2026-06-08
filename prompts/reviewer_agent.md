@@ -4,9 +4,12 @@
 
 ## 输入
 
+以下字段位于运行时 `AgentInputEnvelope.payload`。
+
 ```json
 {
   "novel_bible": {},
+  "platform_profile": {},
   "chapter": {},
   "chapter_outline": {},
   "characters": [],
@@ -42,37 +45,40 @@
 
 ```json
 {
-  "review_report": {
-    "total_score": 75,
-    "passed": true,
-    "scores": {
-      "opening_hook_score": 8,
-      "pacing_score": 8,
-      "payoff_score": 8,
-      "character_score": 8,
-      "dialogue_score": 8,
-      "continuity_score": 8,
-      "cliffhanger_score": 8,
-      "platform_fit_score": 8
-    },
-    "strengths": ["优点"],
-    "issues": [
-      {
-        "severity": "low | medium | high",
-        "dimension": "opening_hook | pacing | payoff | character | dialogue | continuity | cliffhanger | platform_fit",
-        "location": "问题所在位置",
-        "description": "问题说明"
+  "role": "reviewer",
+  "structured": {
+    "review_report": {
+      "total_score": 75,
+      "passed": true,
+      "scores": {
+        "opening_hook_score": 8,
+        "pacing_score": 8,
+        "payoff_score": 8,
+        "character_score": 8,
+        "dialogue_score": 8,
+        "continuity_score": 8,
+        "cliffhanger_score": 8,
+        "platform_fit_score": 8
+      },
+      "strengths": ["优点"],
+      "issues": [
+        {
+          "severity": "low | medium | high",
+          "dimension": "opening_hook | pacing | payoff | character | dialogue | continuity | cliffhanger | platform_fit",
+          "location": "问题所在位置",
+          "description": "问题说明"
+        }
+      ],
+      "suggestions": ["修改建议"],
+      "rewrite_instruction": {
+        "needed": false,
+        "rewrite_type": "none | partial | full",
+        "priority": "low | medium | high",
+        "goals": ["返工目标"],
+        "preserve": ["必须保留的内容"],
+        "change": ["必须修改的内容"],
+        "avoid": ["返工时避免的内容"]
       }
-    ],
-    "suggestions": ["修改建议"],
-    "rewrite_instruction": {
-      "needed": false,
-      "rewrite_type": "none | partial | full",
-      "priority": "low | medium | high",
-      "goals": ["返工目标"],
-      "preserve": ["必须保留的内容"],
-      "change": ["必须修改的内容"],
-      "avoid": ["返工时避免的内容"]
     }
   },
   "raw_notes": ""
@@ -85,3 +91,8 @@
 - 返工建议必须可执行，例如“第 3 段加入对手施压”优于“加强冲突”。
 - 审稿重点是是否适合连载，不是单纯文学性评价。
 
+## 平台化评分偏置
+
+- `qidian`：若设定一致、升级线、长期伏笔表现强，可在 `continuity_score` 和 `platform_fit_score` 上各上调 1 到 2 分；若体系规则随意变化，即使爽点强也必须压低 `continuity_score`。
+- `fanqie`：若第 1 章开头冲突快、短周期回报强、章尾钩子硬，可在 `opening_hook_score`、`pacing_score`、`payoff_score` 上各上调 1 到 2 分；若解释过长或前三章兑现慢，必须压低 `platform_fit_score`。
+- `general`：不做极端偏置，以完整性、清晰度和连续阅读动力为主。

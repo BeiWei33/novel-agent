@@ -4,6 +4,8 @@
 
 ## 输入
 
+以下字段位于运行时 `AgentInputEnvelope.payload`。
+
 ```json
 {
   "novel_bible": {},
@@ -29,40 +31,43 @@
 
 ```json
 {
-  "continuity_report": {
-    "passed": true,
-    "issues": [
-      {
-        "severity": "low | medium | high",
-        "type": "character | world | timeline | fact | foreshadowing | other",
-        "location": "问题所在段落或事件",
-        "description": "问题说明",
-        "suggestion": "修复建议"
-      }
-    ],
-    "new_facts": [
-      {
-        "subject": "主体",
-        "predicate": "关系",
-        "object": "客体",
-        "importance": 1
-      }
-    ],
-    "character_state_updates": [
-      {
-        "character": "角色名",
-        "before": "原状态",
-        "after": "新状态",
-        "reason": "变化原因"
-      }
-    ],
-    "foreshadowing_updates": [
-      {
-        "seed": "伏笔",
-        "status": "planted | advanced | paid_off | contradicted",
-        "note": "说明"
-      }
-    ]
+  "role": "continuity",
+  "structured": {
+    "continuity_report": {
+      "passed": true,
+      "issues": [
+        {
+          "severity": "low | medium | high",
+          "type": "character | world | timeline | fact | foreshadowing | other",
+          "location": "问题所在段落或事件",
+          "description": "问题说明",
+          "suggestion": "修复建议"
+        }
+      ],
+      "new_facts": [
+        {
+          "subject": "主体",
+          "predicate": "关系",
+          "object": "客体",
+          "importance": 1
+        }
+      ],
+      "character_state_updates": [
+        {
+          "character": "角色名",
+          "before": "原状态",
+          "after": "新状态",
+          "reason": "变化原因"
+        }
+      ],
+      "foreshadowing_updates": [
+        {
+          "seed": "伏笔",
+          "status": "planted | advanced | paid_off | contradicted",
+          "note": "说明"
+        }
+      ]
+    }
   },
   "raw_notes": ""
 }
@@ -73,4 +78,3 @@
 - 高严重度问题必须说明为什么会破坏读者信任。
 - 新事实要尽量拆成短句，方便存入 facts 表。
 - 不要把文风偏好当成连续性问题。
-

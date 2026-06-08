@@ -11,6 +11,7 @@ pub use chapter::{
 pub use character::{CharacterArc, CharacterCard, CharacterId, CharacterRelationship};
 pub use fact::{Fact, FactId};
 pub use novel::{
-    Novel, NovelBible, NovelId, NovelStatus, OpeningStrategy, TargetPlatform, TitleCandidate,
+    Novel, NovelBible, NovelId, NovelStatus, OpeningStrategy, PlatformProfile, TargetPlatform,
+    TitleCandidate,
 };
 pub use review::{ReviewIssue, ReviewReport, ReviewReportId, ReviewScores, RewriteDecision};

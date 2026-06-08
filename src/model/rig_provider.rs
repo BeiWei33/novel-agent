@@ -39,7 +39,7 @@ impl RigModelClient {
 
         let mut builder = client.agent(self.model.as_str());
         if let Some(system_prompt) = request.system_prompt {
-            builder = builder.preamble(system_prompt);
+            builder = builder.preamble(&system_prompt);
         }
 
         let agent = builder.build();

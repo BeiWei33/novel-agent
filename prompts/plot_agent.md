@@ -4,6 +4,8 @@
 
 ## 输入
 
+以下字段位于运行时 `AgentInputEnvelope.payload`。
+
 ```json
 {
   "idea": "原始创意",
@@ -36,46 +38,56 @@
 
 ```json
 {
-  "plot_plan": {
-    "main_conflict": "全书主冲突",
-    "protagonist_goal": "主角长期目标",
-    "antagonistic_force": "主要阻力或反派势力",
-    "long_term_hook": "支撑百万字连载的长期期待",
-    "volume_plan": [
+  "role": "plot",
+  "structured": {
+    "plot_plan": {
+      "main_conflict": "全书主冲突",
+      "protagonist_goal": "主角长期目标",
+      "antagonistic_force": "主要阻力或反派势力",
+      "long_term_hook": "支撑百万字连载的长期期待",
+      "volume_plan": [
+        {
+          "volume_index": 1,
+          "title": "卷名",
+          "goal": "本卷目标",
+          "core_conflict": "本卷冲突",
+          "payoff": "本卷回报"
+        }
+      ],
+      "foreshadowing": [
+        {
+          "seed": "伏笔",
+          "planted_in_chapter": 1,
+          "expected_payoff": "预计回收方式"
+        }
+      ]
+    },
+    "chapter_outlines": [
       {
         "volume_index": 1,
-        "title": "卷名",
-        "goal": "本卷目标",
-        "core_conflict": "本卷冲突",
-        "payoff": "本卷回报"
+        "chapter_index": 1,
+        "title": "章节标题",
+        "pov": "叙事视角",
+        "goal": "本章目标",
+        "conflict": "本章冲突",
+        "key_events": ["关键事件"],
+        "character_changes": ["人物状态变化"],
+        "new_facts": [
+          {
+            "subject": "主体",
+            "predicate": "关系",
+            "object": "客体",
+            "importance": 1
+          }
+        ],
+        "foreshadowing": ["本章埋设或推进的伏笔"],
+        "payoff": "本章给读者的回报",
+        "cliffhanger": "章尾钩子",
+        "estimated_word_count": 2500
       }
     ],
-    "foreshadowing": [
-      {
-        "seed": "伏笔",
-        "planted_in_chapter": 1,
-        "expected_payoff": "预计回收方式"
-      }
-    ]
+    "risk_notes": ["剧情风险"]
   },
-  "chapter_outlines": [
-    {
-      "volume_index": 1,
-      "chapter_index": 1,
-      "title": "章节标题",
-      "pov": "叙事视角",
-      "goal": "本章目标",
-      "conflict": "本章冲突",
-      "key_events": ["关键事件"],
-      "character_changes": ["人物状态变化"],
-      "new_facts": ["本章会产生的事实"],
-      "foreshadowing": ["本章埋设或推进的伏笔"],
-      "payoff": "本章给读者的回报",
-      "cliffhanger": "章尾钩子",
-      "estimated_word_count": 2500
-    }
-  ],
-  "risk_notes": ["剧情风险"],
   "raw_notes": ""
 }
 ```
@@ -85,4 +97,10 @@
 - 大纲不能只有“发生冲突”“主角成长”这类空话。
 - 每章大纲至少包含一个具体事件、一个冲突点、一个章尾推进。
 - 伏笔必须记录预计回收方向，避免只埋不收。
+- `new_facts` 必须使用事实三元组结构，即使只是计划事实。
 
+## 平台化执行参数
+
+- `qidian`：前三章允许少量设定展开，但设定段落必须绑定冲突；前十章必须建立升级体系、长期目标和一个可追踪伏笔；每 2 章至少给一次阶段回报。
+- `fanqie`：第 1 章前 800 字内必须进入核心冲突；每章都要有可感知爽点或情绪回报；解释性设定压缩到动作、对白或冲突中。
+- `general`：保持章节推进和设定清晰的平衡；每章都要有冲突、回报、章尾期待。
