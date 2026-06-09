@@ -481,6 +481,12 @@ try {
     if ($null -ne $wrongWriterModel) {
         throw "Filtered AgentRun API returned unexpected provider/model metadata."
     }
+    if ($Provider -eq "smoke") {
+        $missingWriterTokens = $writerRuns.runs | Where-Object { $_.prompt_tokens -le 0 -or $_.completion_tokens -le 0 -or $_.total_tokens -le 0 } | Select-Object -First 1
+        if ($null -ne $missingWriterTokens) {
+            throw "Filtered AgentRun API returned missing token metadata."
+        }
+    }
     $globalWriterRuns = Invoke-ApiJson "global filtered agent runs" "Get" "/api/runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&status=ok"
     if ($globalWriterRuns.runs.Count -ne $writerRuns.runs.Count) {
         throw "Global filtered AgentRun API returned different count from novel-scoped query."
@@ -496,6 +502,9 @@ try {
     }
     if ($runDetail.run.provider -ne $Provider -or $runDetail.run.model -ne $Model) {
         throw "AgentRun detail API returned wrong provider/model metadata."
+    }
+    if ($Provider -eq "smoke" -and ($runDetail.run.prompt_tokens -ne $globalWriterRuns.runs[0].prompt_tokens -or $runDetail.run.completion_tokens -ne $globalWriterRuns.runs[0].completion_tokens -or $runDetail.run.total_tokens -ne $globalWriterRuns.runs[0].total_tokens)) {
+        throw "AgentRun detail API returned different token metadata."
     }
     $aliasRuns = Invoke-ApiJson "agent runs alias" "Get" "/api/agent-runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&status=ok"
     if ($aliasRuns.runs.Count -ne $globalWriterRuns.runs.Count) {

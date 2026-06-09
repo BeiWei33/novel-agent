@@ -1666,6 +1666,8 @@ struct AgentRunResponse {
     status: String,
     attempt: Option<u64>,
     duration_ms: Option<u64>,
+    prompt_tokens: Option<u64>,
+    completion_tokens: Option<u64>,
     total_tokens: Option<u64>,
     output_summary: String,
     structured: Value,
@@ -1688,6 +1690,8 @@ impl AgentRunResponse {
             status: run.status().as_str().to_string(),
             attempt: run.attempt(),
             duration_ms: run.duration_ms(),
+            prompt_tokens: run.prompt_tokens(),
+            completion_tokens: run.completion_tokens(),
             total_tokens: run.total_tokens(),
             output_summary: summarize_agent_run(run),
             structured: run.structured.clone(),
@@ -2716,6 +2720,9 @@ mod tests {
                 && run["task"].as_str() == Some("generate_chapter")
                 && run["provider"].as_str() == Some("smoke")
                 && run["model"].as_str() == Some("smoke")
+                && run["prompt_tokens"].as_u64().unwrap_or(0) > 0
+                && run["completion_tokens"].as_u64().unwrap_or(0) > 0
+                && run["total_tokens"].as_u64().unwrap_or(0) > 0
                 && run["status"].as_str() == Some("ok")
         }));
         assert_eq!(
@@ -2756,6 +2763,19 @@ mod tests {
         assert_eq!(run_detail_json["run"]["novel_id"].as_str(), Some(novel_id));
         assert_eq!(run_detail_json["run"]["provider"].as_str(), Some("smoke"));
         assert_eq!(run_detail_json["run"]["model"].as_str(), Some("smoke"));
+        assert!(
+            run_detail_json["run"]["prompt_tokens"]
+                .as_u64()
+                .unwrap_or(0)
+                > 0
+        );
+        assert!(
+            run_detail_json["run"]["completion_tokens"]
+                .as_u64()
+                .unwrap_or(0)
+                > 0
+        );
+        assert!(run_detail_json["run"]["total_tokens"].as_u64().unwrap_or(0) > 0);
 
         let agent_runs_alias_response = app
             .clone()
