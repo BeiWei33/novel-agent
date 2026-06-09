@@ -65,6 +65,10 @@ pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
             put(save_chapter_edit),
         )
         .route(
+            "/api/novels/{novel_id}/chapters/{chapter_index}/content",
+            put(save_chapter_edit),
+        )
+        .route(
             "/api/novels/{novel_id}/chapters/{chapter_index}/write",
             post(write_chapter),
         )
@@ -1821,6 +1825,32 @@ mod tests {
             Some(manual_content)
         );
 
+        let content_alias = "人工编辑兼容入口：保留同一章身份，并保存为新的人工版本。";
+        let content_alias_response = app
+            .clone()
+            .oneshot(json_request(
+                "PUT",
+                &format!("/api/novels/{novel_id}/chapters/1/content"),
+                json!({
+                    "title": "第一章 兼容入口修订",
+                    "content": content_alias,
+                    "summary": "content 兼容别名保存人工稿"
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(content_alias_response.status(), StatusCode::OK);
+        let content_alias_json = response_json(content_alias_response).await;
+        assert_eq!(
+            content_alias_json["draft"]["title"].as_str(),
+            Some("第一章 兼容入口修订")
+        );
+        assert_eq!(
+            content_alias_json["draft"]["content"].as_str(),
+            Some(content_alias)
+        );
+        assert_eq!(content_alias_json["draft"]["version"].as_u64(), Some(3));
+
         let versions_response = app
             .clone()
             .oneshot(empty_request(
@@ -1836,6 +1866,11 @@ mod tests {
             .unwrap()
             .iter()
             .any(|version| version.as_u64() == Some(2)));
+        assert!(versions_json["versions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|version| version.as_u64() == Some(3)));
 
         let empty_manual_edit_response = app
             .clone()

@@ -286,9 +286,24 @@ try {
     if ($manualEdit.draft.content -ne $manualEditContent) {
         throw "Manual edit API did not return saved content."
     }
+    $contentAliasBody = @{
+        title = "Chapter 1 Content Alias Revision"
+        content = "Manual content alias update: the same chapter is saved through the compatibility route."
+        summary = "Compatibility save route keeps manual editing wired."
+    }
+    $contentAlias = Invoke-ApiJson -Name "manual edit content alias" -Method "Put" -Path "/api/novels/$NovelId/chapters/1/content" -Body $contentAliasBody
+    if ($contentAlias.draft.version -ne 3) {
+        throw "Manual content alias should save chapter version 3, got version=$($contentAlias.draft.version)."
+    }
+    if ($contentAlias.draft.content -ne $contentAliasBody.content) {
+        throw "Manual content alias API did not return saved content."
+    }
     $manualVersions = Invoke-ApiJson "manual edit versions" "Get" "/api/novels/$NovelId/chapters/1/versions"
     if (-not ($manualVersions.versions -contains 2)) {
         throw "Manual edit version 2 was not returned by versions API."
+    }
+    if (-not ($manualVersions.versions -contains 3)) {
+        throw "Manual content alias version 3 was not returned by versions API."
     }
 
     $sse = Invoke-ApiText "write stream" "Post" "/api/novels/$NovelId/chapters/2/write/stream"

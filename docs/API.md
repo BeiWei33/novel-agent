@@ -358,7 +358,10 @@ data: {"operation":"write","draft":{}}
 
 ```http
 PUT /api/novels/{novel_id}/chapters/{chapter_index}/edit
+PUT /api/novels/{novel_id}/chapters/{chapter_index}/content
 ```
+
+`/content` 是 Web 工作台早期交接文档的兼容别名，请求和响应与 `/edit` 完全一致。
 
 请求：
 
