@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use axum::{
     Json, Router,
@@ -15,6 +16,7 @@ use chrono::Utc;
 use futures_util::{Stream, stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
 use crate::agents::ModelHandle;
@@ -23,6 +25,7 @@ use crate::domain::{
     ReviewReport, TargetPlatform,
 };
 use crate::error::{StorageError, WorkflowError};
+use crate::model::{ModelMetadata, ModelProvider, RigModelClient, SmokeModelClient};
 use crate::storage::{
     AgentRunRecord, AgentRunStatus, AgentRunStatusSummary, JobRecord, JobStatus, SqliteStorage,
 };
@@ -31,12 +34,22 @@ use crate::workflow::{ChapterGenerationWorkflow, NovelCreationWorkflow};
 #[derive(Clone)]
 pub struct ApiState {
     storage: SqliteStorage,
-    model: ModelHandle,
+    model: Arc<RwLock<ModelRuntimeState>>,
+}
+
+#[derive(Clone)]
+struct ModelRuntimeState {
+    handle: ModelHandle,
+    settings: ModelSettings,
 }
 
 pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route(
+            "/api/model",
+            get(get_model_settings).put(update_model_settings),
+        )
         .route("/api/jobs", get(list_jobs))
         .route("/api/jobs/{job_id}", get(get_job))
         .route("/api/jobs/{job_id}/retry", post(retry_job))
@@ -128,8 +141,30 @@ pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
         )
         .route("/api/novels/{novel_id}/export", post(export_markdown))
         .route("/api/novels/{novel_id}/runs", get(list_agent_runs))
-        .with_state(ApiState { storage, model })
+        .with_state(ApiState {
+            storage,
+            model: Arc::new(RwLock::new(ModelRuntimeState::from_handle(model))),
+        })
         .layer(CorsLayer::permissive())
+}
+
+impl ModelRuntimeState {
+    fn from_handle(handle: ModelHandle) -> Self {
+        let settings = ModelSettings::from_metadata(handle.metadata());
+        Self { handle, settings }
+    }
+
+    fn from_settings(settings: ModelSettings) -> Result<Self, ApiError> {
+        let provider = ModelProvider::parse(&settings.provider)
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        let settings = ModelSettings {
+            provider: provider.as_str().to_string(),
+            model: settings.model,
+            reasoning_effort: normalized_reasoning_effort(provider, settings.reasoning_effort),
+        };
+        let handle = model_handle_from_settings(provider, &settings);
+        Ok(Self { handle, settings })
+    }
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -140,6 +175,55 @@ async fn health() -> Json<HealthResponse> {
         checked_at: Utc::now().to_rfc3339(),
         sse: true,
     })
+}
+
+async fn get_model_settings(State(state): State<ApiState>) -> Json<ModelSettingsResponse> {
+    let settings = state.model.read().await.settings.clone();
+    Json(ModelSettingsResponse { model: settings })
+}
+
+async fn update_model_settings(
+    State(state): State<ApiState>,
+    Json(request): Json<ModelSettingsRequest>,
+) -> Result<Json<ModelSettingsResponse>, ApiError> {
+    let provider = require_non_empty(&request.provider, "provider")?.to_string();
+    let model = require_non_empty(&request.model, "model")?.to_string();
+    let settings = ModelSettings {
+        provider,
+        model,
+        reasoning_effort: request.reasoning_effort,
+    };
+    let runtime = ModelRuntimeState::from_settings(settings)?;
+    let response = runtime.settings.clone();
+    *state.model.write().await = runtime;
+    Ok(Json(ModelSettingsResponse { model: response }))
+}
+
+async fn current_model_handle(state: &ApiState) -> ModelHandle {
+    state.model.read().await.handle.clone()
+}
+
+fn model_handle_from_settings(provider: ModelProvider, settings: &ModelSettings) -> ModelHandle {
+    match provider {
+        ModelProvider::OpenAi | ModelProvider::DeepSeek => Arc::new(
+            RigModelClient::new(provider, settings.model.clone())
+                .with_reasoning_effort(settings.reasoning_effort.clone()),
+        ),
+        ModelProvider::Smoke => Arc::new(SmokeModelClient::new(settings.model.clone())),
+    }
+}
+
+fn normalized_reasoning_effort(
+    provider: ModelProvider,
+    reasoning_effort: Option<String>,
+) -> Option<String> {
+    if provider != ModelProvider::OpenAi {
+        return None;
+    }
+
+    reasoning_effort
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 async fn list_jobs(
@@ -287,7 +371,7 @@ async fn create_novel(
 ) -> Result<(StatusCode, Json<CreateNovelResponse>), ApiError> {
     let idea = require_non_empty(&request.idea, "idea")?;
     let platform = parse_platform(request.platform.as_deref())?;
-    let workflow = NovelCreationWorkflow::new(&state.storage, state.model.clone());
+    let workflow = NovelCreationWorkflow::new(&state.storage, current_model_handle(&state).await);
     let result = workflow
         .create_from_idea_with_outline_batch_size(
             idea,
@@ -331,7 +415,7 @@ async fn create_novel_job(
     let job_id = job.id.clone();
     spawn_create_novel_job(
         state.storage.clone(),
-        state.model.clone(),
+        current_model_handle(&state).await,
         job_id,
         idea,
         platform,
@@ -431,7 +515,7 @@ async fn generate_outline(
     Json(request): Json<OutlineRequest>,
 ) -> Result<Json<OutlineResponse>, ApiError> {
     let novel_id = NovelId::from(novel_id);
-    let workflow = NovelCreationWorkflow::new(&state.storage, state.model.clone());
+    let workflow = NovelCreationWorkflow::new(&state.storage, current_model_handle(&state).await);
     let outlines = workflow
         .generate_outline_with_batch_size(
             &novel_id,
@@ -467,7 +551,8 @@ async fn save_chapter_edit(
     Json(request): Json<ManualEditChapterRequest>,
 ) -> Result<Json<ChapterDraftResponse>, ApiError> {
     let novel_id = NovelId::from(novel_id);
-    let workflow = ChapterGenerationWorkflow::new(&state.storage, state.model.clone());
+    let workflow =
+        ChapterGenerationWorkflow::new(&state.storage, current_model_handle(&state).await);
     let draft = workflow
         .save_manual_edit(
             &novel_id,
@@ -485,7 +570,8 @@ async fn write_chapter(
     Path((novel_id, chapter_index)): Path<(String, u32)>,
 ) -> Result<Json<ChapterDraftResponse>, ApiError> {
     let novel_id = NovelId::from(novel_id);
-    let workflow = ChapterGenerationWorkflow::new(&state.storage, state.model.clone());
+    let workflow =
+        ChapterGenerationWorkflow::new(&state.storage, current_model_handle(&state).await);
     let draft = workflow.write_chapter(&novel_id, chapter_index).await?;
     Ok(Json(ChapterDraftResponse { draft }))
 }
@@ -513,7 +599,7 @@ async fn write_chapter_job(
     let job_id = job.id.clone();
     spawn_write_chapter_job(
         state.storage.clone(),
-        state.model.clone(),
+        current_model_handle(&state).await,
         job_id,
         novel_id,
         chapter_index,
@@ -551,7 +637,7 @@ async fn write_chapters_job(
         .await?;
     spawn_write_chapters_job(
         state.storage.clone(),
-        state.model.clone(),
+        current_model_handle(&state).await,
         job.id.clone(),
         novel_id,
         request.chapter_start,
@@ -566,7 +652,8 @@ async fn write_chapter_stream(
     Path((novel_id, chapter_index)): Path<(String, u32)>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let novel_id = NovelId::from(novel_id);
-    let workflow = ChapterGenerationWorkflow::new(&state.storage, state.model.clone());
+    let workflow =
+        ChapterGenerationWorkflow::new(&state.storage, current_model_handle(&state).await);
     let draft = workflow.write_chapter(&novel_id, chapter_index).await?;
     Ok(Sse::new(draft_sse_stream("write", draft)).keep_alive(KeepAlive::default()))
 }
@@ -576,7 +663,8 @@ async fn review_chapter(
     Path((novel_id, chapter_index)): Path<(String, u32)>,
 ) -> Result<Json<ReviewResponse>, ApiError> {
     let novel_id = NovelId::from(novel_id);
-    let workflow = ChapterGenerationWorkflow::new(&state.storage, state.model.clone());
+    let workflow =
+        ChapterGenerationWorkflow::new(&state.storage, current_model_handle(&state).await);
     let report = workflow.review_chapter(&novel_id, chapter_index).await?;
     Ok(Json(ReviewResponse { report }))
 }
@@ -604,7 +692,7 @@ async fn review_chapter_job(
     let job_id = job.id.clone();
     spawn_review_chapter_job(
         state.storage.clone(),
-        state.model.clone(),
+        current_model_handle(&state).await,
         job_id,
         novel_id,
         chapter_index,
@@ -618,7 +706,8 @@ async fn rewrite_chapter(
     Path((novel_id, chapter_index)): Path<(String, u32)>,
 ) -> Result<Json<ChapterDraftResponse>, ApiError> {
     let novel_id = NovelId::from(novel_id);
-    let workflow = ChapterGenerationWorkflow::new(&state.storage, state.model.clone());
+    let workflow =
+        ChapterGenerationWorkflow::new(&state.storage, current_model_handle(&state).await);
     let draft = workflow.rewrite_chapter(&novel_id, chapter_index).await?;
     Ok(Json(ChapterDraftResponse { draft }))
 }
@@ -646,7 +735,7 @@ async fn rewrite_chapter_job(
     let job_id = job.id.clone();
     spawn_rewrite_chapter_job(
         state.storage.clone(),
-        state.model.clone(),
+        current_model_handle(&state).await,
         job_id,
         novel_id,
         chapter_index,
@@ -660,7 +749,8 @@ async fn rewrite_chapter_stream(
     Path((novel_id, chapter_index)): Path<(String, u32)>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let novel_id = NovelId::from(novel_id);
-    let workflow = ChapterGenerationWorkflow::new(&state.storage, state.model.clone());
+    let workflow =
+        ChapterGenerationWorkflow::new(&state.storage, current_model_handle(&state).await);
     let draft = workflow.rewrite_chapter(&novel_id, chapter_index).await?;
     Ok(Sse::new(draft_sse_stream("rewrite", draft)).keep_alive(KeepAlive::default()))
 }
@@ -743,7 +833,8 @@ async fn export_markdown(
     Path(novel_id): Path<String>,
 ) -> Result<Json<ExportMarkdownResponse>, ApiError> {
     let novel_id = NovelId::from(novel_id);
-    let workflow = ChapterGenerationWorkflow::new(&state.storage, state.model.clone());
+    let workflow =
+        ChapterGenerationWorkflow::new(&state.storage, current_model_handle(&state).await);
     let markdown = workflow.export_markdown_content(&novel_id).await?;
     Ok(Json(ExportMarkdownResponse {
         novel_id: novel_id.to_string(),
@@ -1017,7 +1108,7 @@ async fn retry_create_novel_job(
 
     spawn_create_novel_job(
         state.storage.clone(),
-        state.model.clone(),
+        current_model_handle(state).await,
         job.id.clone(),
         idea,
         platform,
@@ -1075,21 +1166,21 @@ async fn retry_chapter_job(
     match kind {
         "write_chapter" => spawn_write_chapter_job(
             state.storage.clone(),
-            state.model.clone(),
+            current_model_handle(state).await,
             job.id.clone(),
             novel_id,
             chapter_index,
         ),
         "review_chapter" => spawn_review_chapter_job(
             state.storage.clone(),
-            state.model.clone(),
+            current_model_handle(state).await,
             job.id.clone(),
             novel_id,
             chapter_index,
         ),
         "rewrite_chapter" => spawn_rewrite_chapter_job(
             state.storage.clone(),
-            state.model.clone(),
+            current_model_handle(state).await,
             job.id.clone(),
             novel_id,
             chapter_index,
@@ -1135,7 +1226,7 @@ async fn retry_write_chapters_job(
         .await?;
     spawn_write_chapters_job(
         state.storage.clone(),
-        state.model.clone(),
+        current_model_handle(state).await,
         job.id.clone(),
         novel_id,
         chapter_start,
@@ -1518,6 +1609,30 @@ struct BatchWriteChaptersRequest {
     chapter_end: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ModelSettings {
+    provider: String,
+    model: String,
+    reasoning_effort: Option<String>,
+}
+
+impl ModelSettings {
+    fn from_metadata(metadata: ModelMetadata) -> Self {
+        Self {
+            provider: metadata.provider,
+            model: metadata.model,
+            reasoning_effort: metadata.reasoning_effort,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelSettingsRequest {
+    provider: String,
+    model: String,
+    reasoning_effort: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct HealthResponse {
     status: String,
@@ -1525,6 +1640,11 @@ struct HealthResponse {
     version: String,
     checked_at: String,
     sse: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ModelSettingsResponse {
+    model: ModelSettings,
 }
 
 #[derive(Debug, Serialize)]
@@ -1857,6 +1977,55 @@ mod tests {
         );
         assert!(health_json["checked_at"].as_str().is_some());
         assert_eq!(health_json["sse"].as_bool(), Some(true));
+
+        let model_response = app
+            .clone()
+            .oneshot(empty_request("GET", "/api/model"))
+            .await
+            .unwrap();
+        assert_eq!(model_response.status(), StatusCode::OK);
+        let model_json = response_json(model_response).await;
+        assert_eq!(model_json["model"]["provider"].as_str(), Some("smoke"));
+        assert_eq!(model_json["model"]["model"].as_str(), Some("smoke"));
+
+        let update_model_response = app
+            .clone()
+            .oneshot(json_request(
+                "PUT",
+                "/api/model",
+                json!({
+                    "provider": "local",
+                    "model": "smoke-runtime",
+                    "reasoning_effort": "ignored"
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(update_model_response.status(), StatusCode::OK);
+        let update_model_json = response_json(update_model_response).await;
+        assert_eq!(
+            update_model_json["model"]["provider"].as_str(),
+            Some("smoke")
+        );
+        assert_eq!(
+            update_model_json["model"]["model"].as_str(),
+            Some("smoke-runtime")
+        );
+        assert!(update_model_json["model"]["reasoning_effort"].is_null());
+
+        let invalid_model_response = app
+            .clone()
+            .oneshot(json_request(
+                "PUT",
+                "/api/model",
+                json!({
+                    "provider": "definitely-not-a-provider",
+                    "model": "smoke"
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(invalid_model_response.status(), StatusCode::BAD_REQUEST);
 
         let cors_response = app
             .clone()
@@ -2719,7 +2888,7 @@ mod tests {
             run["role"].as_str() == Some("writer")
                 && run["task"].as_str() == Some("generate_chapter")
                 && run["provider"].as_str() == Some("smoke")
-                && run["model"].as_str() == Some("smoke")
+                && run["model"].as_str() == Some("smoke-runtime")
                 && run["prompt_tokens"].as_u64().unwrap_or(0) > 0
                 && run["completion_tokens"].as_u64().unwrap_or(0) > 0
                 && run["total_tokens"].as_u64().unwrap_or(0) > 0
@@ -2762,7 +2931,10 @@ mod tests {
         assert_eq!(run_detail_json["run"]["id"].as_str(), Some(first_run_id));
         assert_eq!(run_detail_json["run"]["novel_id"].as_str(), Some(novel_id));
         assert_eq!(run_detail_json["run"]["provider"].as_str(), Some("smoke"));
-        assert_eq!(run_detail_json["run"]["model"].as_str(), Some("smoke"));
+        assert_eq!(
+            run_detail_json["run"]["model"].as_str(),
+            Some("smoke-runtime")
+        );
         assert!(
             run_detail_json["run"]["prompt_tokens"]
                 .as_u64()

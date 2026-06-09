@@ -55,6 +55,37 @@ GET /health
 }
 ```
 
+## 模型配置
+
+```http
+GET /api/model
+PUT /api/model
+```
+
+`GET /api/model` 返回当前 API 进程后续 workflow 会使用的模型配置。`PUT /api/model` 会在线切换模型配置，影响切换之后触发的新建、生成、审稿、重写和后台 job；已经启动的后台任务继续使用任务启动时捕获的模型客户端。`provider` 支持 `smoke`、`openai`、`deepseek`，并兼容 `local` / `offline` 作为 `smoke` 别名。`reasoning_effort` 只对 `openai` provider 生效，其他 provider 会返回 `null`。
+
+请求：
+
+```json
+{
+  "provider": "smoke",
+  "model": "smoke",
+  "reasoning_effort": null
+}
+```
+
+响应：
+
+```json
+{
+  "model": {
+    "provider": "smoke",
+    "model": "smoke",
+    "reasoning_effort": null
+  }
+}
+```
+
 ## 后台任务
 
 当前 jobs 记录写入 SQLite `api_jobs` 表，用于给 Web 工作台提供非阻塞调用入口。服务重启后已完成或失败的任务记录仍可查询；如果进程在任务运行中退出，下次 `serve` 启动会把遗留的 `queued` / `running` 任务标记为 `failed`，MVP 暂不自动恢复执行该任务。

@@ -222,6 +222,18 @@ try {
         throw "Health API should report sse=true."
     }
 
+    $currentModel = Invoke-ApiJson "get model settings" "Get" "/api/model"
+    if ($currentModel.model.provider -ne $Provider -or $currentModel.model.model -ne $Model) {
+        throw "Model settings API returned unexpected initial provider/model."
+    }
+    $updatedModel = Invoke-ApiJson "update model settings" "Put" "/api/model" @{
+        provider = $Provider
+        model = $Model
+    }
+    if ($updatedModel.model.provider -ne $Provider -or $updatedModel.model.model -ne $Model) {
+        throw "Model settings API did not preserve provider/model."
+    }
+
     Write-Host "=== cors preflight ==="
     $cors = Invoke-WebRequest `
         -UseBasicParsing `
