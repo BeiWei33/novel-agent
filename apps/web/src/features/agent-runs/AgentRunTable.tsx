@@ -14,7 +14,7 @@ export function AgentRunTable({
 }) {
   return (
     <div className="overflow-x-auto bg-white">
-      <table className="min-w-[1060px] w-full border-collapse text-sm">
+      <table className="min-w-[1140px] w-full border-collapse text-sm">
         <thead className="table-head">
           <tr>
             <th className="px-4 py-3">运行时间</th>
@@ -24,6 +24,7 @@ export function AgentRunTable({
             <th className="px-3 py-3 text-right">尝试</th>
             <th className="px-3 py-3 text-right">耗时</th>
             <th className="px-3 py-3 text-right">tokens</th>
+            <th className="px-3 py-3 text-right">cost</th>
             <th className="px-3 py-3">输出摘要</th>
             <th className="px-4 py-3">错误</th>
           </tr>
@@ -58,6 +59,12 @@ export function AgentRunTable({
                   {formatTokenCount(run.prompt_tokens)} / {formatTokenCount(run.completion_tokens)}
                 </div>
               </td>
+              <td className="px-3 py-3 text-right tabular-nums">
+                <div>{formatMicroUsd(run.total_cost_micro_usd)}</div>
+                <div className="text-xs text-slate-500">
+                  {formatMicroUsd(run.prompt_cost_micro_usd)} / {formatMicroUsd(run.completion_cost_micro_usd)}
+                </div>
+              </td>
               <td className="px-3 py-3 text-slate-600">{run.output_summary}</td>
               <td className="px-4 py-3 text-slate-500">{run.parse_error ?? "-"}</td>
             </tr>
@@ -75,4 +82,8 @@ function modelLabel(run: AgentRun): string {
 
 function formatTokenCount(value?: number | null): string {
   return typeof value === "number" ? new Intl.NumberFormat("zh-CN").format(value) : "-";
+}
+
+function formatMicroUsd(value?: number | null): string {
+  return typeof value === "number" ? `$${(value / 1_000_000).toFixed(4)}` : "-";
 }

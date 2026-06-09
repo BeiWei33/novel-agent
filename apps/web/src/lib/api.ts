@@ -34,6 +34,10 @@ let mockModelSettings: ApiModelSettings = {
   provider: "smoke",
   model: "smoke",
   reasoning_effort: null,
+  pricing: {
+    prompt_cost_micro_usd_per_million_tokens: 1_000_000,
+    completion_cost_micro_usd_per_million_tokens: 2_000_000,
+  },
 };
 
 export const apiConfig = {
@@ -130,6 +134,9 @@ interface AgentRunsResponse {
     prompt_tokens?: number | null;
     completion_tokens?: number | null;
     total_tokens?: number | null;
+    prompt_cost_micro_usd?: number | null;
+    completion_cost_micro_usd?: number | null;
+    total_cost_micro_usd?: number | null;
   }>;
   summary?: AgentRunStatusSummary;
 }
@@ -402,6 +409,9 @@ function normalizeAgentRun(run: AgentRunsResponse["runs"][number]): AgentRun {
     prompt_tokens: run.prompt_tokens ?? null,
     completion_tokens: run.completion_tokens ?? null,
     total_tokens: run.total_tokens ?? null,
+    prompt_cost_micro_usd: run.prompt_cost_micro_usd ?? null,
+    completion_cost_micro_usd: run.completion_cost_micro_usd ?? null,
+    total_cost_micro_usd: run.total_cost_micro_usd ?? null,
     output_summary:
       run.output_summary ??
       (run.parse_error ? `运行失败：${run.parse_error}` : `${run.role} / ${run.task} 已记录。`),
@@ -419,6 +429,10 @@ function emptyAgentRunSummary(): AgentRunStatusSummary {
     prompt_tokens: 0,
     completion_tokens: 0,
     total_tokens: 0,
+    priced_runs: 0,
+    prompt_cost_micro_usd: 0,
+    completion_cost_micro_usd: 0,
+    total_cost_micro_usd: 0,
   };
 }
 
@@ -443,6 +457,16 @@ function summarizeAgentRuns(runs: AgentRun[]): AgentRunStatusSummary {
     if (typeof run.completion_tokens === "number") {
       summary.completion_tokens += run.completion_tokens;
     }
+    if (typeof run.total_cost_micro_usd === "number") {
+      summary.priced_runs += 1;
+      summary.total_cost_micro_usd += run.total_cost_micro_usd;
+    }
+    if (typeof run.prompt_cost_micro_usd === "number") {
+      summary.prompt_cost_micro_usd += run.prompt_cost_micro_usd;
+    }
+    if (typeof run.completion_cost_micro_usd === "number") {
+      summary.completion_cost_micro_usd += run.completion_cost_micro_usd;
+    }
     return summary;
   }, emptyAgentRunSummary());
 }
@@ -453,9 +477,10 @@ function normalizeAgentRunReport(payload: AgentRunsResponse, filters: Normalized
     .filter((run) => matchesAgentRunFilters(run, filters))
     .slice(0, filters.limit);
   const shouldRecomputeSummary = filters.status === "running" || runs.length !== payload.runs.length;
+  const payloadSummary = payload.summary ? { ...emptyAgentRunSummary(), ...payload.summary } : summarizeAgentRuns(runs);
   return {
     runs,
-    summary: shouldRecomputeSummary ? summarizeAgentRuns(runs) : (payload.summary ?? summarizeAgentRuns(runs)),
+    summary: shouldRecomputeSummary ? summarizeAgentRuns(runs) : payloadSummary,
   };
 }
 
@@ -581,6 +606,19 @@ function normalizeModelSettings(settings: ApiModelSettings): ApiModelSettings {
     provider,
     model,
     reasoning_effort: provider === "openai" ? reasoningEffort : null,
+    pricing: normalizeModelPricing(settings.pricing),
+  };
+}
+
+function normalizeModelPricing(pricing: ApiModelSettings["pricing"]): ApiModelSettings["pricing"] {
+  const promptCost = pricing?.prompt_cost_micro_usd_per_million_tokens;
+  const completionCost = pricing?.completion_cost_micro_usd_per_million_tokens;
+  if (typeof promptCost !== "number" || typeof completionCost !== "number") {
+    return null;
+  }
+  return {
+    prompt_cost_micro_usd_per_million_tokens: Math.max(0, Math.round(promptCost)),
+    completion_cost_micro_usd_per_million_tokens: Math.max(0, Math.round(completionCost)),
   };
 }
 

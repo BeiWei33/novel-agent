@@ -26,6 +26,12 @@ export interface ApiModelSettings {
   provider: ApiModelProvider | (string & {});
   model: string;
   reasoning_effort?: string | null;
+  pricing?: ApiModelPricing | null;
+}
+
+export interface ApiModelPricing {
+  prompt_cost_micro_usd_per_million_tokens: number;
+  completion_cost_micro_usd_per_million_tokens: number;
 }
 
 export interface ChapterStreamEvent {

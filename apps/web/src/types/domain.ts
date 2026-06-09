@@ -327,6 +327,9 @@ export interface AgentRun {
   prompt_tokens?: number | null;
   completion_tokens?: number | null;
   total_tokens?: number | null;
+  prompt_cost_micro_usd?: number | null;
+  completion_cost_micro_usd?: number | null;
+  total_cost_micro_usd?: number | null;
   output_summary: string;
   structured: Record<string, unknown>;
   raw_text: string;
@@ -345,6 +348,10 @@ export interface AgentRunStatusSummary {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  priced_runs: number;
+  prompt_cost_micro_usd: number;
+  completion_cost_micro_usd: number;
+  total_cost_micro_usd: number;
 }
 
 export interface AgentRunReport {

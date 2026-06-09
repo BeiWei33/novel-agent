@@ -287,7 +287,7 @@ export function AgentRunsPage() {
 function AgentRunSummaryBar({ summary }: { summary: AgentRunStatusSummary }) {
   const badRuns = summary.fallback + summary.parse_error;
   return (
-    <div className="grid grid-cols-2 gap-3 border-b border-line bg-slate-50 px-4 py-3 text-xs md:grid-cols-5 xl:grid-cols-10">
+    <div className="grid grid-cols-2 gap-3 border-b border-line bg-slate-50 px-4 py-3 text-xs md:grid-cols-5 xl:grid-cols-12">
       <SummaryMetric label="总数" value={formatNumber(summary.total)} />
       <SummaryMetric label="ok" value={formatNumber(summary.ok)} tone="teal" />
       <SummaryMetric label="异常" value={formatNumber(badRuns)} tone={badRuns > 0 ? "rose" : "slate"} />
@@ -298,6 +298,8 @@ function AgentRunSummaryBar({ summary }: { summary: AgentRunStatusSummary }) {
       <SummaryMetric label="prompt" value={formatNumber(summary.prompt_tokens)} />
       <SummaryMetric label="completion" value={formatNumber(summary.completion_tokens)} />
       <SummaryMetric label="tokens" value={formatNumber(summary.total_tokens)} />
+      <SummaryMetric label="priced" value={formatNumber(summary.priced_runs)} />
+      <SummaryMetric label="cost" value={formatMicroUsd(summary.total_cost_micro_usd)} />
     </div>
   );
 }
@@ -494,6 +496,9 @@ function AgentRunDetail({ run, isLoading, error }: { run: AgentRun | null; isLoa
           <DetailItem label="prompt tokens" value={typeof run.prompt_tokens === "number" ? formatNumber(run.prompt_tokens) : "-"} />
           <DetailItem label="completion" value={typeof run.completion_tokens === "number" ? formatNumber(run.completion_tokens) : "-"} />
           <DetailItem label="tokens" value={typeof run.total_tokens === "number" ? formatNumber(run.total_tokens) : "-"} />
+          <DetailItem label="prompt cost" value={formatOptionalMicroUsd(run.prompt_cost_micro_usd)} />
+          <DetailItem label="completion cost" value={formatOptionalMicroUsd(run.completion_cost_micro_usd)} />
+          <DetailItem label="total cost" value={formatOptionalMicroUsd(run.total_cost_micro_usd)} />
           <DetailItem label="时间" value={formatDateTime(run.created_at)} />
           <DetailItem label="novel_id" value={run.novel_id ?? "-"} />
         </dl>
@@ -541,6 +546,16 @@ function summarizePageAgentRuns(runs: AgentRun[]): AgentRunStatusSummary {
       if (typeof run.completion_tokens === "number") {
         summary.completion_tokens += run.completion_tokens;
       }
+      if (typeof run.total_cost_micro_usd === "number") {
+        summary.priced_runs += 1;
+        summary.total_cost_micro_usd += run.total_cost_micro_usd;
+      }
+      if (typeof run.prompt_cost_micro_usd === "number") {
+        summary.prompt_cost_micro_usd += run.prompt_cost_micro_usd;
+      }
+      if (typeof run.completion_cost_micro_usd === "number") {
+        summary.completion_cost_micro_usd += run.completion_cost_micro_usd;
+      }
       return summary;
     },
     {
@@ -553,12 +568,24 @@ function summarizePageAgentRuns(runs: AgentRun[]): AgentRunStatusSummary {
       prompt_tokens: 0,
       completion_tokens: 0,
       total_tokens: 0,
+      priced_runs: 0,
+      prompt_cost_micro_usd: 0,
+      completion_cost_micro_usd: 0,
+      total_cost_micro_usd: 0,
     },
   );
 }
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("zh-CN").format(value);
+}
+
+function formatMicroUsd(value: number): string {
+  return `$${(value / 1_000_000).toFixed(4)}`;
+}
+
+function formatOptionalMicroUsd(value?: number | null): string {
+  return typeof value === "number" ? formatMicroUsd(value) : "-";
 }
 
 function nonEmptyString(value: string | null | undefined): value is string {
