@@ -60,6 +60,13 @@ export function AgentRunsPage() {
     [providerFilter, roleFilter, runs, statusFilter, taskFilter, trimmedNovelIdFilter],
   );
   const activeRun = selectedRunId ? (filteredRuns.find((run) => run.id === selectedRunId) ?? filteredRuns[0] ?? null) : filteredRuns[0] ?? null;
+  const runDetailQuery = useQuery({
+    queryKey: activeRun ? queryKeys.agentRun(activeRun.id) : ["agent-run", "none"],
+    queryFn: () => api.getAgentRun(activeRun?.id ?? ""),
+    enabled: Boolean(activeRun),
+    refetchInterval: activeRun?.status === "running" ? 5_000 : false,
+  });
+  const detailRun = runDetailQuery.data ?? activeRun;
   const summary = useMemo(
     () => (providerFilter === "all" ? (runsQuery.data?.summary ?? summarizePageAgentRuns(filteredRuns)) : summarizePageAgentRuns(filteredRuns)),
     [filteredRuns, providerFilter, runsQuery.data?.summary],
@@ -136,7 +143,7 @@ export function AgentRunsPage() {
                 />
               </div>
             )}
-            <AgentRunDetail run={activeRun} />
+            <AgentRunDetail run={detailRun} isLoading={runDetailQuery.isLoading} error={runDetailQuery.error} />
           </div>
         </>
       ) : null}
@@ -292,7 +299,7 @@ function FilterInput({
   );
 }
 
-function AgentRunDetail({ run }: { run: AgentRun | null }) {
+function AgentRunDetail({ run, isLoading, error }: { run: AgentRun | null; isLoading?: boolean; error?: unknown }) {
   if (!run) {
     return <aside className="border-l border-line bg-slate-50 p-4 text-sm text-slate-500">暂无运行记录</aside>;
   }
@@ -305,9 +312,13 @@ function AgentRunDetail({ run }: { run: AgentRun | null }) {
             <h2 className="text-sm font-semibold text-ink">{agentRoleLabels[run.role]}</h2>
             <p className="mt-1 text-xs text-slate-500">{agentTaskLabels[run.task]}</p>
           </div>
-          <Badge tone={run.status === "ok" ? "teal" : run.status === "running" ? "blue" : "rose"}>{run.status}</Badge>
+          <div className="flex flex-col items-end gap-2">
+            <Badge tone={run.status === "ok" ? "teal" : run.status === "running" ? "blue" : "rose"}>{run.status}</Badge>
+            {isLoading ? <span className="text-xs text-slate-500">刷新详情中</span> : null}
+          </div>
         </div>
         <dl className="grid grid-cols-2 gap-3 text-xs">
+          <DetailItem label="run_id" value={run.id} />
           <DetailItem label="provider" value={run.provider} />
           <DetailItem label="耗时" value={formatDuration(run.duration_ms)} />
           <DetailItem label="attempt" value={run.attempt ? String(run.attempt) : "-"} />
@@ -317,9 +328,15 @@ function AgentRunDetail({ run }: { run: AgentRun | null }) {
         </dl>
       </div>
       <div className="space-y-4 p-4">
+        {error ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-800">
+            详情接口读取失败，当前显示列表快照：{error instanceof Error ? error.message : "未知错误"}
+          </div>
+        ) : null}
         <DetailBlock title="输出摘要" value={run.output_summary} />
         {run.parse_error ? <DetailBlock title="错误信息" value={run.parse_error} tone="danger" /> : null}
         <DetailBlock title="raw_notes" value={run.raw_notes || "-"} />
+        <DetailBlock title="raw_text" value={run.raw_text || "-"} mono />
         <div>
           <h3 className="mb-2 text-xs font-semibold text-slate-600">structured</h3>
           <pre className="max-h-80 overflow-auto rounded-md border border-border bg-white p-3 text-xs leading-5 text-slate-700">
@@ -376,11 +393,11 @@ function DetailItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DetailBlock({ title, value, tone }: { title: string; value: string; tone?: "danger" }) {
+function DetailBlock({ title, value, tone, mono }: { title: string; value: string; tone?: "danger"; mono?: boolean }) {
   return (
     <div>
       <h3 className="mb-2 text-xs font-semibold text-slate-600">{title}</h3>
-      <p className={`rounded-md border p-3 text-sm leading-6 ${tone === "danger" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-border bg-white text-slate-700"}`}>
+      <p className={`max-h-72 overflow-auto whitespace-pre-wrap rounded-md border p-3 text-sm leading-6 ${mono ? "font-mono text-xs" : ""} ${tone === "danger" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-border bg-white text-slate-700"}`}>
         {value}
       </p>
     </div>

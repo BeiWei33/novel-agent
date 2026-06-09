@@ -207,6 +207,7 @@ export const queryKeys = {
   continuity: (novelId: string, chapterIndex: number) => ["chapter-continuity", novelId, chapterIndex] as const,
   agentRunsRoot: ["agent-runs"] as const,
   agentRuns: (options: string | AgentRunListOptions = {}) => ["agent-runs", normalizeAgentRunListOptions(options)] as const,
+  agentRun: (runId: string) => ["agent-run", runId] as const,
   jobsRoot: ["jobs"] as const,
   jobs: (options: JobListOptions = {}) => ["jobs", normalizeJobListOptions(options)] as const,
   job: (jobId: string) => ["job", jobId] as const,
@@ -1125,6 +1126,19 @@ export const api = {
   async getAgentRuns(options: string | AgentRunListOptions = {}): Promise<AgentRun[]> {
     const report = await this.getAgentRunReport(options);
     return report.runs;
+  },
+
+  async getAgentRun(runId: string): Promise<AgentRun> {
+    if (!useMock) {
+      const payload = await request<{ run: AgentRunsResponse["runs"][number] }>(`/api/runs/${runId}`);
+      return normalizeAgentRun(payload.run);
+    }
+    await sleep(120);
+    const run = db.agentRuns.find((item) => item.id === runId);
+    if (!run) {
+      throw new ApiError("Agent run not found", 404);
+    }
+    return clone(run);
   },
 
   async createChapterJob(novelId: string, chapterIndex: number, kind: ChapterJobKind): Promise<ApiJob> {
