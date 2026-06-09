@@ -276,7 +276,7 @@ export interface ReviewIssue {
 
 export interface RewriteDecision {
   needed: boolean;
-  rewrite_type: "none" | "partial" | "full";
+  rewrite_type: "none" | "partial" | "full" | "opening" | "ending" | "style" | (string & {});
   priority: "low" | "medium" | "high";
   goals: string[];
   preserve: string[];

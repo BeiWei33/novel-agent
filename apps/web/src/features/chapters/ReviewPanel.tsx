@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { SearchCheck, Wand2 } from "lucide-react";
 import type { ContinuityReport, ReviewReport } from "../../types/domain";
 import { Badge } from "../../components/ui/Badge";
@@ -29,6 +30,63 @@ const foreshadowingStatusLabels: Record<string, string> = {
   advanced: "推进",
   paid_off: "已回收",
   contradicted: "冲突",
+};
+
+const issueDimensionLabels: Record<ReviewReport["issues"][number]["dimension"], string> = {
+  continuity: "连续性",
+  pacing: "情节推进",
+  cliffhanger: "章尾钩子",
+  opening_hook: "开头吸引力",
+  payoff: "爽点回报",
+  character: "人物表现",
+  dialogue: "对话自然度",
+  platform_fit: "平台适配",
+};
+
+const severityLabels: Record<string, string> = {
+  high: "高",
+  medium: "中",
+  low: "低",
+};
+
+const priorityLabels: Record<string, string> = {
+  high: "高优先级",
+  medium: "中优先级",
+  low: "低优先级",
+};
+
+const rewriteTypeLabels: Record<string, string> = {
+  none: "无需返工",
+  partial: "局部返工",
+  full: "整章重写",
+  opening: "开头重写",
+  ending: "结尾重写",
+  style: "语言润色",
+};
+
+const rewriteActionLabels: Record<string, string> = {
+  partial: "按建议局部重写",
+  full: "整章重写",
+  opening: "重写开头",
+  ending: "重写结尾",
+  style: "语言润色",
+};
+
+const issueSeverityOrder: Record<string, number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+};
+
+const issueDimensionOrder: Record<string, number> = {
+  continuity: 0,
+  pacing: 1,
+  cliffhanger: 2,
+  opening_hook: 3,
+  payoff: 4,
+  character: 5,
+  dialogue: 6,
+  platform_fit: 7,
 };
 
 export function ReviewPanel({
@@ -63,54 +121,148 @@ export function ReviewPanel({
         </Button>
         <Button variant="secondary" onClick={onRewrite} disabled={rewritePending || !report?.rewrite_instruction.needed}>
           <Wand2 className="h-4 w-4" />
-          {rewritePending ? "重写中" : "重写"}
+          {rewritePending ? "重写中" : rewriteActionLabel(report)}
         </Button>
       </div>
 
       {!report ? (
-        <div className="rounded-md border border-dashed border-border p-4 text-sm text-slate-500">暂无审稿报告</div>
+        <div className="rounded-md border border-dashed border-border p-4 text-sm text-slate-500">
+          本章还没有审稿。生成正文后可以运行 Reviewer Agent。
+        </div>
       ) : (
         <>
-          <div className="rounded-md border border-border bg-white p-4 shadow-soft">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm font-semibold">总分</div>
-              <Badge tone={report.passed ? "teal" : "rose"}>{report.total_score}</Badge>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {Object.entries(report.scores).map(([key, value]) => (
-                <div key={key} className="rounded-md bg-slate-50 p-2">
-                  <div className="text-xs text-slate-500">{scoreLabels[key as keyof ReviewReport["scores"]]}</div>
-                  <div className="mt-1 text-sm font-semibold tabular-nums">{value}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <PanelList title="优点" values={report.strengths} tone="teal" />
-          <div className="rounded-md border border-border bg-white p-4 shadow-soft">
-            <div className="mb-3 text-sm font-semibold">问题</div>
-            <div className="space-y-3">
-              {report.issues.map((issue) => (
-                <div key={`${issue.dimension}-${issue.location}`} className="border-b border-line pb-3 last:border-0 last:pb-0">
-                  <div className="mb-1 flex items-center gap-2">
-                    <Badge tone={issue.severity === "high" ? "rose" : issue.severity === "medium" ? "amber" : "slate"}>
-                      {issue.severity}
-                    </Badge>
-                    <span className="text-xs text-slate-500">{issue.location}</span>
-                  </div>
-                  <p className="text-sm leading-6 text-slate-700">{issue.description}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <PanelList title="修改建议" values={report.suggestions} tone="blue" />
-          {report.rewrite_instruction.needed ? (
-            <PanelList title="返工目标" values={report.rewrite_instruction.goals} tone="amber" />
-          ) : null}
+          <ReviewSummaryCard report={report} />
+          <ScoreGrid scores={report.scores} />
+          <RewriteInstructionCard report={report} />
+          <ReviewIssues issues={report.issues} />
+          <SuggestionChecklist suggestions={report.suggestions} />
+          <PanelList title="优点" values={report.strengths} tone="teal" emptyText="暂无特别标记的优点。" />
         </>
       )}
 
       <ContinuityCard report={continuityReport} isLoading={continuityLoading} />
+    </div>
+  );
+}
+
+function ReviewSummaryCard({ report }: { report: ReviewReport }) {
+  return (
+    <div className="rounded-md border border-border bg-white p-4 shadow-soft">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs text-slate-500">总分</div>
+          <div className={`mt-1 text-3xl font-semibold tabular-nums ${report.total_score < 75 ? "text-rose-700" : "text-teal-700"}`}>
+            {report.total_score}
+          </div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge tone={report.passed ? "teal" : "rose"}>{report.passed ? "通过" : "需返工"}</Badge>
+          <Badge tone={report.rewrite_instruction.needed ? "amber" : "teal"}>
+            {report.rewrite_instruction.needed ? "建议返工" : "无需返工"}
+          </Badge>
+          <Badge tone={priorityTone(report.rewrite_instruction.priority)}>
+            {priorityLabels[report.rewrite_instruction.priority] ?? report.rewrite_instruction.priority}
+          </Badge>
+        </div>
+      </div>
+      <div className="grid gap-2 text-xs leading-5 text-slate-600">
+        <div>审稿时间：{new Date(report.created_at).toLocaleString("zh-CN")}</div>
+        <div>{"通过线：总分 >= 75，节奏 >= 7，连续性 >= 8，章尾钩子 >= 7"}</div>
+      </div>
+    </div>
+  );
+}
+
+function ScoreGrid({ scores }: { scores: ReviewReport["scores"] }) {
+  return (
+    <div className="rounded-md border border-border bg-white p-4 shadow-soft">
+      <div className="mb-3 text-sm font-semibold">评分维度</div>
+      <div className="grid grid-cols-2 gap-2">
+        {Object.entries(scores).map(([key, value]) => (
+          <div key={key} className="rounded-md bg-slate-50 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-slate-500">{scoreLabels[key as keyof ReviewReport["scores"]]}</div>
+              <Badge tone={scoreTone(value)} className="min-h-5 px-1.5">
+                {scoreLevel(value)}
+              </Badge>
+            </div>
+            <div className="mt-1 text-sm font-semibold tabular-nums">{value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RewriteInstructionCard({ report }: { report: ReviewReport }) {
+  const instruction = report.rewrite_instruction;
+  return (
+    <div className="rounded-md border border-border bg-white p-4 shadow-soft">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold">返工指令</div>
+        <div className="flex flex-wrap gap-2">
+          <Badge tone={instruction.needed ? "amber" : "teal"}>{rewriteTypeLabel(instruction.rewrite_type)}</Badge>
+          <Badge tone={priorityTone(instruction.priority)}>{priorityLabels[instruction.priority] ?? instruction.priority}</Badge>
+        </div>
+      </div>
+      <CompactList title="返工目标" values={instruction.goals} emptyText={instruction.needed ? "暂无明确返工目标。" : "本章达到当前连载通过线。"} />
+      <CompactList title="必须保留" values={instruction.preserve} />
+      <CompactList title="必须修改" values={instruction.change} />
+      <CompactList title="避免事项" values={instruction.avoid} />
+    </div>
+  );
+}
+
+function ReviewIssues({ issues }: { issues: ReviewReport["issues"] }) {
+  const sortedIssues = [...issues].sort(compareReviewIssues);
+  return (
+    <div className="rounded-md border border-border bg-white p-4 shadow-soft">
+      <div className="mb-3 text-sm font-semibold">问题</div>
+      {sortedIssues.length === 0 ? (
+        <p className="text-sm leading-6 text-slate-500">暂无明确问题。本章达到当前连载通过线。</p>
+      ) : (
+        <div className="space-y-3">
+          {sortedIssues.map((issue, index) => (
+            <div key={`${issue.dimension}-${issue.location}-${index}`} className="border-b border-line pb-3 last:border-0 last:pb-0">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <Badge tone={severityTone(issue.severity)}>{severityLabels[issue.severity] ?? issue.severity}</Badge>
+                <span className="text-xs text-slate-500">{issueDimensionLabels[issue.dimension] ?? issue.dimension}</span>
+                <span className="text-xs text-slate-500">{issue.location || "整章"}</span>
+              </div>
+              <p className="text-sm leading-6 text-slate-700">{issue.description}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SuggestionChecklist({ suggestions }: { suggestions: string[] }) {
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  return (
+    <div className="rounded-md border border-border bg-white p-4 shadow-soft">
+      <div className="mb-3 text-sm font-semibold">修改建议</div>
+      {suggestions.length === 0 ? (
+        <p className="text-sm leading-6 text-slate-500">暂无修改建议。本章达到当前连载通过线。</p>
+      ) : (
+        <div className="space-y-2">
+          {suggestions.map((suggestion, index) => {
+            const key = `${index}-${suggestion}`;
+            return (
+              <label key={key} className="flex items-start gap-2 text-sm leading-6 text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={checked[key] ?? false}
+                  onChange={(event) => setChecked((current) => ({ ...current, [key]: event.target.checked }))}
+                  className="mt-1 h-4 w-4 rounded border-border text-accent"
+                />
+                <span className={checked[key] ? "text-slate-400 line-through" : undefined}>{suggestion}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -127,7 +279,7 @@ function ContinuityCard({ report, isLoading }: { report?: ContinuityReport | nul
   if (!report) {
     return (
       <div className="rounded-md border border-dashed border-border p-4 text-sm text-slate-500">
-        暂无连续性报告
+        本章还没有连续性检查结果。生成或重写章节后会自动检查。
       </div>
     );
   }
@@ -185,7 +337,7 @@ function ContinuityIssues({ issues }: { issues: ContinuityReport["issues"] }) {
           return (
             <div key={`${issue.type ?? "issue"}-${issue.location ?? index}`} className="border-b border-line pb-3 last:border-0 last:pb-0">
               <div className="mb-1 flex flex-wrap items-center gap-2">
-                <Badge tone={severityTone(issue.severity)}>{issue.severity ?? "issue"}</Badge>
+                <Badge tone={severityTone(issue.severity)}>{issue.severity ? (severityLabels[issue.severity] ?? issue.severity) : "问题"}</Badge>
                 <span className="text-xs text-slate-500">{type}</span>
                 {issue.location ? <span className="text-xs text-slate-500">{issue.location}</span> : null}
               </div>
@@ -265,20 +417,54 @@ function ForeshadowingUpdates({ report }: { report: ContinuityReport }) {
   );
 }
 
-function PanelList({ title, values, tone }: { title: string; values: string[]; tone: "teal" | "blue" | "amber" }) {
+function PanelList({
+  title,
+  values,
+  tone,
+  emptyText,
+}: {
+  title: string;
+  values: string[];
+  tone: "teal" | "blue" | "amber";
+  emptyText?: string;
+}) {
   return (
     <div className="rounded-md border border-border bg-white p-4 shadow-soft">
       <div className="mb-3 text-sm font-semibold">{title}</div>
-      <div className="space-y-2">
-        {values.map((value) => (
-          <div key={value} className="flex gap-2 text-sm leading-6 text-slate-700">
-            <Badge tone={tone} className="mt-0.5 h-5 min-h-5 px-1.5">
-              {title.slice(0, 1)}
-            </Badge>
-            <span>{value}</span>
-          </div>
-        ))}
-      </div>
+      {values.length === 0 ? (
+        <p className="text-sm leading-6 text-slate-500">{emptyText ?? "暂无内容。"}</p>
+      ) : (
+        <div className="space-y-2">
+          {values.map((value) => (
+            <div key={value} className="flex gap-2 text-sm leading-6 text-slate-700">
+              <Badge tone={tone} className="mt-0.5 h-5 min-h-5 px-1.5">
+                {title.slice(0, 1)}
+              </Badge>
+              <span>{value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CompactList({ title, values, emptyText }: { title: string; values: string[]; emptyText?: string }) {
+  if (values.length === 0 && !emptyText) {
+    return null;
+  }
+  return (
+    <div className="mb-3 last:mb-0">
+      <div className="mb-1 text-xs font-semibold text-slate-600">{title}</div>
+      {values.length === 0 ? (
+        <p className="text-sm leading-6 text-slate-500">{emptyText}</p>
+      ) : (
+        <ul className="space-y-1 text-sm leading-6 text-slate-700">
+          {values.map((value) => (
+            <li key={value}>{value}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -291,6 +477,61 @@ function severityTone(severity?: string): "rose" | "amber" | "slate" {
     return "amber";
   }
   return "slate";
+}
+
+function priorityTone(priority: string): "rose" | "amber" | "slate" {
+  if (priority === "high") {
+    return "rose";
+  }
+  if (priority === "medium") {
+    return "amber";
+  }
+  return "slate";
+}
+
+function scoreTone(score: number): "teal" | "blue" | "amber" | "rose" {
+  if (score >= 9) {
+    return "teal";
+  }
+  if (score >= 7) {
+    return "blue";
+  }
+  if (score >= 5) {
+    return "amber";
+  }
+  return "rose";
+}
+
+function scoreLevel(score: number): string {
+  if (score >= 9) {
+    return "强";
+  }
+  if (score >= 7) {
+    return "达标";
+  }
+  if (score >= 5) {
+    return "偏弱";
+  }
+  return "严重";
+}
+
+function rewriteTypeLabel(value: string): string {
+  return rewriteTypeLabels[value] ?? "自定义返工";
+}
+
+function rewriteActionLabel(report?: ReviewReport | null): string {
+  if (!report?.rewrite_instruction.needed) {
+    return "重写";
+  }
+  return rewriteActionLabels[report.rewrite_instruction.rewrite_type] ?? "按建议重写";
+}
+
+function compareReviewIssues(left: ReviewReport["issues"][number], right: ReviewReport["issues"][number]): number {
+  const severity = (issueSeverityOrder[left.severity] ?? 99) - (issueSeverityOrder[right.severity] ?? 99);
+  if (severity !== 0) {
+    return severity;
+  }
+  return (issueDimensionOrder[left.dimension] ?? 99) - (issueDimensionOrder[right.dimension] ?? 99);
 }
 
 function characterStateText(update: ContinuityReport["character_state_updates"][number]): string {
