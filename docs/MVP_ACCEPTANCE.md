@@ -66,6 +66,7 @@ API smoke test 已覆盖：
 - Storage 单元测试额外覆盖旧 `api_jobs` 表补 `payload` / `source_job_id` / progress 列、批量进度推进、取消终态不被 running/complete 写回覆盖，以及 `serve` 启动前可将遗留未完成 job 标为 `failed`。
 - `GET /api/novels/{novel_id}/export/markdown`
 - `GET /api/novels/{novel_id}/runs?limit=50`
+- `GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&status=ok`
 - CORS preflight
 
 ## 3. Demo 口径

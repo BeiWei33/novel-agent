@@ -2019,3 +2019,43 @@ agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 to
 当前状态：
 
 - Web 工作台可以直接读取作品事实表和章节连续性报告；事实/伏笔面板与连续性侧栏不再必须依赖整份作品详情接口。
+
+## 51. 开发者 A 第三十六轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：`GET /api/novels/{novel_id}/runs` 增加 `role` / `task` / `status` 可选筛选参数，用于 Web 工作台运行时间线按 Agent 角色、任务类型和运行状态筛选。
+- A-P2：`AgentRunRepository::list_recent_filtered` 支持按 `role` / `task` 在 SQLite 层筛选；`status` 继续复用 `AgentRunRecord::status()` 的工程口径，保持 API 与 CLI 状态一致。
+- A-P2：非法 `status` 返回 `400 Bad Request`，避免运行面板静默展示空数据。
+- A-P2：API smoke test 覆盖 `role=writer&task=generate_chapter&status=ok` 和非法 status；API demo 覆盖 filtered AgentRun 查询。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 和 `scripts/api_demo.ps1` 已同步 AgentRun 筛选能力。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 14 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / facts / write / continuity / review / SSE / jobs(filter + novel_id) / batch-jobs / retry-completed-400 / cancel-completed-400 / export / runs / filtered-runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+```
+
+当前状态：
+
+- Web 工作台运行面板可以直接按 Agent 角色、任务类型和状态筛选运行记录，并获得对应筛选后的 summary。

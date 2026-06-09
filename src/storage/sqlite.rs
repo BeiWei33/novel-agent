@@ -1026,18 +1026,34 @@ impl AgentRunRepository<'_> {
         novel_id: Option<&NovelId>,
         limit: u32,
     ) -> Result<Vec<AgentRunRecord>, StorageError> {
+        self.list_recent_filtered(novel_id, limit, None, None).await
+    }
+
+    pub async fn list_recent_filtered(
+        &self,
+        novel_id: Option<&NovelId>,
+        limit: u32,
+        role: Option<&str>,
+        task: Option<&str>,
+    ) -> Result<Vec<AgentRunRecord>, StorageError> {
         let novel_id = novel_id.map(ToString::to_string);
+        let role = role.map(str::to_string);
+        let task = task.map(str::to_string);
         let rows = sqlx::query(
             r#"
             SELECT id, novel_id, role, task, structured, raw_text, raw_notes, parse_error, created_at
             FROM agent_runs
             WHERE (?1 IS NULL OR novel_id = ?1)
+              AND (?3 IS NULL OR role = ?3)
+              AND (?4 IS NULL OR task = ?4)
             ORDER BY created_at DESC
             LIMIT ?2
             "#,
         )
         .bind(novel_id)
         .bind(i64::from(limit.max(1)))
+        .bind(role)
+        .bind(task)
         .fetch_all(self.pool)
         .await?;
 

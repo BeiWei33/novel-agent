@@ -22,7 +22,9 @@ use crate::domain::{
     ReviewReport, TargetPlatform,
 };
 use crate::error::{StorageError, WorkflowError};
-use crate::storage::{AgentRunRecord, AgentRunStatusSummary, JobRecord, JobStatus, SqliteStorage};
+use crate::storage::{
+    AgentRunRecord, AgentRunStatus, AgentRunStatusSummary, JobRecord, JobStatus, SqliteStorage,
+};
 use crate::workflow::{ChapterGenerationWorkflow, NovelCreationWorkflow};
 
 #[derive(Clone)]
@@ -665,15 +667,37 @@ async fn export_markdown(
 async fn list_agent_runs(
     State(state): State<ApiState>,
     Path(novel_id): Path<String>,
-    Query(query): Query<LimitQuery>,
+    Query(query): Query<AgentRunsQuery>,
 ) -> Result<Json<AgentRunsResponse>, ApiError> {
     let novel_id = NovelId::from(novel_id);
     ensure_novel_exists(&state.storage, &novel_id).await?;
+    let limit = capped_limit(query.limit, 20);
+    let role = query
+        .role
+        .as_deref()
+        .map(str::trim)
+        .filter(|role| !role.is_empty());
+    let task = query
+        .task
+        .as_deref()
+        .map(str::trim)
+        .filter(|task| !task.is_empty());
+    let status = query
+        .status
+        .as_deref()
+        .map(parse_agent_run_status)
+        .transpose()?;
+    let fetch_limit = if status.is_some() { 200 } else { limit };
     let runs = state
         .storage
         .agent_runs()
-        .list_recent(Some(&novel_id), capped_limit(query.limit, 20))
+        .list_recent_filtered(Some(&novel_id), fetch_limit, role, task)
         .await?;
+    let runs = runs
+        .into_iter()
+        .filter(|run| status.map(|status| run.status() == status).unwrap_or(true))
+        .take(limit as usize)
+        .collect::<Vec<_>>();
     let summary = AgentRunStatusSummary::from_runs(&runs);
     let runs = runs.iter().map(AgentRunResponse::from_record).collect();
     Ok(Json(AgentRunsResponse { runs, summary }))
@@ -710,6 +734,17 @@ fn capped_limit(limit: Option<u32>, default: u32) -> u32 {
 
 fn parse_platform(platform: Option<&str>) -> Result<TargetPlatform, ApiError> {
     TargetPlatform::from_str(platform.unwrap_or("general")).map_err(ApiError::from)
+}
+
+fn parse_agent_run_status(value: &str) -> Result<AgentRunStatus, ApiError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "ok" => Ok(AgentRunStatus::Ok),
+        "fallback" => Ok(AgentRunStatus::Fallback),
+        "parse_error" => Ok(AgentRunStatus::ParseError),
+        _ => Err(ApiError::bad_request(format!(
+            "invalid agent run status `{value}`"
+        ))),
+    }
 }
 
 fn require_non_empty<'a>(value: &'a str, field: &'static str) -> Result<&'a str, ApiError> {
@@ -1266,6 +1301,14 @@ struct JobsQuery {
     kind: Option<String>,
     novel_id: Option<String>,
     source_job_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AgentRunsQuery {
+    limit: Option<u32>,
+    role: Option<String>,
+    task: Option<String>,
+    status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2081,6 +2124,7 @@ mod tests {
         assert!(markdown.contains("## 第1章"));
 
         let runs_response = app
+            .clone()
             .oneshot(empty_request(
                 "GET",
                 &format!("/api/novels/{novel_id}/runs?limit=50"),
@@ -2094,6 +2138,42 @@ mod tests {
         assert_eq!(runs_json["summary"]["parse_error"].as_u64(), Some(0));
         assert!(runs_json["summary"]["tokenized_runs"].as_u64().unwrap() > 0);
         assert!(runs_json["summary"]["total_tokens"].as_u64().unwrap() > 0);
+
+        let filtered_runs_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!(
+                    "/api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&status=ok"
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(filtered_runs_response.status(), StatusCode::OK);
+        let filtered_runs_json = response_json(filtered_runs_response).await;
+        let filtered_runs = filtered_runs_json["runs"].as_array().unwrap();
+        assert!(!filtered_runs.is_empty());
+        assert!(filtered_runs.iter().all(|run| {
+            run["role"].as_str() == Some("writer")
+                && run["task"].as_str() == Some("generate_chapter")
+                && run["status"].as_str() == Some("ok")
+        }));
+        assert_eq!(
+            filtered_runs_json["summary"]["total"].as_u64(),
+            Some(filtered_runs.len() as u64)
+        );
+
+        let invalid_run_status_response = app
+            .oneshot(empty_request(
+                "GET",
+                &format!("/api/novels/{novel_id}/runs?status=definitely_not_a_status"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            invalid_run_status_response.status(),
+            StatusCode::BAD_REQUEST
+        );
 
         let _ = std::fs::remove_file(db_path);
     }

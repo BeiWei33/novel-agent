@@ -397,6 +397,14 @@ try {
     if ($runs.summary.fallback -gt 0 -or $runs.summary.parse_error -gt 0) {
         throw "API demo observed failing AgentRun status."
     }
+    $writerRuns = Invoke-ApiJson "filtered agent runs" "Get" "/api/novels/$NovelId/runs?limit=20&role=writer&task=generate_chapter&status=ok"
+    if ($writerRuns.runs.Count -lt 1) {
+        throw "Filtered AgentRun API returned no writer generate_chapter runs."
+    }
+    $wrongWriterRun = $writerRuns.runs | Where-Object { $_.role -ne "writer" -or $_.task -ne "generate_chapter" -or $_.status -ne "ok" } | Select-Object -First 1
+    if ($null -ne $wrongWriterRun) {
+        throw "Filtered AgentRun API returned unexpected role/task/status."
+    }
 
     Write-Host "=== result ==="
     Write-Host "novel_id=$NovelId"
