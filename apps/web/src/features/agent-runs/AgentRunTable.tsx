@@ -53,7 +53,10 @@ export function AgentRunTable({
               <td className="px-3 py-3 text-right tabular-nums">{run.attempt ?? "-"}</td>
               <td className="px-3 py-3 text-right tabular-nums">{formatDuration(run.duration_ms)}</td>
               <td className="px-3 py-3 text-right tabular-nums">
-                {typeof run.total_tokens === "number" ? new Intl.NumberFormat("zh-CN").format(run.total_tokens) : "-"}
+                <div>{formatTokenCount(run.total_tokens)}</div>
+                <div className="text-xs text-slate-500">
+                  {formatTokenCount(run.prompt_tokens)} / {formatTokenCount(run.completion_tokens)}
+                </div>
               </td>
               <td className="px-3 py-3 text-slate-600">{run.output_summary}</td>
               <td className="px-4 py-3 text-slate-500">{run.parse_error ?? "-"}</td>
@@ -68,4 +71,8 @@ export function AgentRunTable({
 function modelLabel(run: AgentRun): string {
   const model = run.model ?? "-";
   return run.reasoning_effort ? `${model} / ${run.reasoning_effort}` : model;
+}
+
+function formatTokenCount(value?: number | null): string {
+  return typeof value === "number" ? new Intl.NumberFormat("zh-CN").format(value) : "-";
 }

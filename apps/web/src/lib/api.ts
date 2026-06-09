@@ -118,6 +118,8 @@ interface AgentRunsResponse {
     provider?: string | null;
     model?: string | null;
     reasoning_effort?: string | null;
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
     total_tokens?: number | null;
   }>;
   summary?: AgentRunStatusSummary;
@@ -369,6 +371,8 @@ function normalizeAgentRun(run: AgentRunsResponse["runs"][number]): AgentRun {
     reasoning_effort: run.reasoning_effort ?? null,
     attempt: run.attempt ?? null,
     duration_ms: run.duration_ms ?? 0,
+    prompt_tokens: run.prompt_tokens ?? null,
+    completion_tokens: run.completion_tokens ?? null,
     total_tokens: run.total_tokens ?? null,
     output_summary:
       run.output_summary ??
@@ -404,6 +408,12 @@ function summarizeAgentRuns(runs: AgentRun[]): AgentRunStatusSummary {
     if (typeof run.total_tokens === "number") {
       summary.tokenized_runs += 1;
       summary.total_tokens += run.total_tokens;
+    }
+    if (typeof run.prompt_tokens === "number") {
+      summary.prompt_tokens += run.prompt_tokens;
+    }
+    if (typeof run.completion_tokens === "number") {
+      summary.completion_tokens += run.completion_tokens;
     }
     return summary;
   }, emptyAgentRunSummary());

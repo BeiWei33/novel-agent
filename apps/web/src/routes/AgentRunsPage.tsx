@@ -221,7 +221,7 @@ export function AgentRunsPage() {
 function AgentRunSummaryBar({ summary }: { summary: AgentRunStatusSummary }) {
   const badRuns = summary.fallback + summary.parse_error;
   return (
-    <div className="grid grid-cols-2 gap-3 border-b border-line bg-slate-50 px-4 py-3 text-xs md:grid-cols-4 xl:grid-cols-8">
+    <div className="grid grid-cols-2 gap-3 border-b border-line bg-slate-50 px-4 py-3 text-xs md:grid-cols-5 xl:grid-cols-10">
       <SummaryMetric label="总数" value={formatNumber(summary.total)} />
       <SummaryMetric label="ok" value={formatNumber(summary.ok)} tone="teal" />
       <SummaryMetric label="异常" value={formatNumber(badRuns)} tone={badRuns > 0 ? "rose" : "slate"} />
@@ -229,6 +229,8 @@ function AgentRunSummaryBar({ summary }: { summary: AgentRunStatusSummary }) {
       <SummaryMetric label="parse_error" value={formatNumber(summary.parse_error)} />
       <SummaryMetric label="总耗时" value={formatDuration(summary.duration_ms_total)} />
       <SummaryMetric label="token runs" value={formatNumber(summary.tokenized_runs)} />
+      <SummaryMetric label="prompt" value={formatNumber(summary.prompt_tokens)} />
+      <SummaryMetric label="completion" value={formatNumber(summary.completion_tokens)} />
       <SummaryMetric label="tokens" value={formatNumber(summary.total_tokens)} />
     </div>
   );
@@ -395,6 +397,8 @@ function AgentRunDetail({ run, isLoading, error }: { run: AgentRun | null; isLoa
           <DetailItem label="reasoning" value={run.reasoning_effort ?? "-"} />
           <DetailItem label="耗时" value={formatDuration(run.duration_ms)} />
           <DetailItem label="attempt" value={run.attempt ? String(run.attempt) : "-"} />
+          <DetailItem label="prompt tokens" value={typeof run.prompt_tokens === "number" ? formatNumber(run.prompt_tokens) : "-"} />
+          <DetailItem label="completion" value={typeof run.completion_tokens === "number" ? formatNumber(run.completion_tokens) : "-"} />
           <DetailItem label="tokens" value={typeof run.total_tokens === "number" ? formatNumber(run.total_tokens) : "-"} />
           <DetailItem label="时间" value={formatDateTime(run.created_at)} />
           <DetailItem label="novel_id" value={run.novel_id ?? "-"} />
@@ -436,6 +440,12 @@ function summarizePageAgentRuns(runs: AgentRun[]): AgentRunStatusSummary {
       if (typeof run.total_tokens === "number") {
         summary.tokenized_runs += 1;
         summary.total_tokens += run.total_tokens;
+      }
+      if (typeof run.prompt_tokens === "number") {
+        summary.prompt_tokens += run.prompt_tokens;
+      }
+      if (typeof run.completion_tokens === "number") {
+        summary.completion_tokens += run.completion_tokens;
       }
       return summary;
     },

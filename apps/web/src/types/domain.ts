@@ -324,6 +324,8 @@ export interface AgentRun {
   status: AgentRunStatus;
   attempt?: number | null;
   duration_ms: number;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
   total_tokens?: number | null;
   output_summary: string;
   structured: Record<string, unknown>;
