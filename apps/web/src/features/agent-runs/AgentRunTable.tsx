@@ -21,7 +21,9 @@ export function AgentRunTable({
             <th className="px-3 py-3">Agent</th>
             <th className="px-3 py-3">provider</th>
             <th className="px-3 py-3">状态</th>
+            <th className="px-3 py-3 text-right">尝试</th>
             <th className="px-3 py-3 text-right">耗时</th>
+            <th className="px-3 py-3 text-right">tokens</th>
             <th className="px-3 py-3">输出摘要</th>
             <th className="px-4 py-3">错误</th>
           </tr>
@@ -45,7 +47,11 @@ export function AgentRunTable({
               <td className="px-3 py-3">
                 <Badge tone={run.status === "ok" ? "teal" : run.status === "running" ? "blue" : "rose"}>{run.status}</Badge>
               </td>
+              <td className="px-3 py-3 text-right tabular-nums">{run.attempt ?? "-"}</td>
               <td className="px-3 py-3 text-right tabular-nums">{formatDuration(run.duration_ms)}</td>
+              <td className="px-3 py-3 text-right tabular-nums">
+                {typeof run.total_tokens === "number" ? new Intl.NumberFormat("zh-CN").format(run.total_tokens) : "-"}
+              </td>
               <td className="px-3 py-3 text-slate-600">{run.output_summary}</td>
               <td className="px-4 py-3 text-slate-500">{run.parse_error ?? "-"}</td>
             </tr>

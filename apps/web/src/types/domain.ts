@@ -285,13 +285,32 @@ export interface AgentRun {
   task: AgentTask;
   provider: "smoke" | "openai" | "deepseek";
   status: AgentRunStatus;
+  attempt?: number | null;
   duration_ms: number;
+  total_tokens?: number | null;
   output_summary: string;
   structured: Record<string, unknown>;
   raw_text: string;
   raw_notes: string;
   parse_error?: string | null;
   created_at: string;
+}
+
+export interface AgentRunStatusSummary {
+  total: number;
+  ok: number;
+  fallback: number;
+  parse_error: number;
+  duration_ms_total: number;
+  tokenized_runs: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface AgentRunReport {
+  runs: AgentRun[];
+  summary: AgentRunStatusSummary;
 }
 
 export interface ApiJob {

@@ -1,7 +1,9 @@
 import type {
   AgentRole,
   AgentRun,
+  AgentRunReport,
   AgentRunStatus,
+  AgentRunStatusSummary,
   AgentTask,
   ApiJob,
   ApiJobKind,
@@ -84,10 +86,12 @@ interface ExportMarkdownResponse {
 
 interface AgentRunsResponse {
   runs: Array<Omit<AgentRun, "provider" | "duration_ms" | "output_summary"> & {
+    attempt?: number | null;
     duration_ms?: number | null;
     output_summary?: string;
     total_tokens?: number | null;
   }>;
+  summary?: AgentRunStatusSummary;
 }
 
 type ChapterJobKind = Extract<ApiJobKind, "write_chapter" | "review_chapter" | "rewrite_chapter">;
@@ -318,10 +322,57 @@ function normalizeAgentRun(run: AgentRunsResponse["runs"][number]): AgentRun {
   return {
     ...run,
     provider: "smoke",
+    attempt: run.attempt ?? null,
     duration_ms: run.duration_ms ?? 0,
+    total_tokens: run.total_tokens ?? null,
     output_summary:
       run.output_summary ??
       (run.parse_error ? `运行失败：${run.parse_error}` : `${run.role} / ${run.task} 已记录。`),
+  };
+}
+
+function emptyAgentRunSummary(): AgentRunStatusSummary {
+  return {
+    total: 0,
+    ok: 0,
+    fallback: 0,
+    parse_error: 0,
+    duration_ms_total: 0,
+    tokenized_runs: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+  };
+}
+
+function summarizeAgentRuns(runs: AgentRun[]): AgentRunStatusSummary {
+  return runs.reduce((summary, run) => {
+    summary.total += 1;
+    if (run.status === "ok") {
+      summary.ok += 1;
+    } else if (run.status === "fallback") {
+      summary.fallback += 1;
+    } else if (run.status === "parse_error") {
+      summary.parse_error += 1;
+    }
+    summary.duration_ms_total += run.duration_ms;
+    if (typeof run.total_tokens === "number") {
+      summary.tokenized_runs += 1;
+      summary.total_tokens += run.total_tokens;
+    }
+    return summary;
+  }, emptyAgentRunSummary());
+}
+
+function normalizeAgentRunReport(payload: AgentRunsResponse, filters: NormalizedAgentRunListOptions): AgentRunReport {
+  const runs = payload.runs
+    .map(normalizeAgentRun)
+    .filter((run) => matchesAgentRunFilters(run, filters))
+    .slice(0, filters.limit);
+  const shouldRecomputeSummary = filters.status === "running" || runs.length !== payload.runs.length;
+  return {
+    runs,
+    summary: shouldRecomputeSummary ? summarizeAgentRuns(runs) : (payload.summary ?? summarizeAgentRuns(runs)),
   };
 }
 
@@ -942,28 +993,26 @@ export const api = {
     return clone(db.reviews[chapter.id] ?? null);
   },
 
-  async getAgentRuns(options: string | AgentRunListOptions = {}): Promise<AgentRun[]> {
+  async getAgentRunReport(options: string | AgentRunListOptions = {}): Promise<AgentRunReport> {
     const filters = normalizeAgentRunListOptions(options);
     if (!useMock) {
-      if (filters.novelId) {
-        const payload = await request<AgentRunsResponse>(`/api/novels/${filters.novelId}/runs?${agentRunParams(filters)}`);
-        return payload.runs.map(normalizeAgentRun);
-      }
-      const novelsPayload = await request<{ novels: Novel[] }>("/api/novels?limit=10");
-      const perNovelLimit = Math.min(filters.limit, 50);
-      const responses = await Promise.all(
-        novelsPayload.novels.map((novel) =>
-          request<AgentRunsResponse>(`/api/novels/${novel.id}/runs?${agentRunParams(filters, perNovelLimit)}`).catch(() => ({ runs: [] })),
-        ),
-      );
-      return responses
-        .flatMap((response) => response.runs.map(normalizeAgentRun))
-        .filter((run) => matchesAgentRunFilters(run, filters))
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, filters.limit);
+      const path = filters.novelId
+        ? `/api/novels/${filters.novelId}/runs?${agentRunParams(filters)}`
+        : `/api/runs?${agentRunParams(filters)}`;
+      const payload = await request<AgentRunsResponse>(path);
+      return normalizeAgentRunReport(payload, filters);
     }
     await sleep();
-    return clone(db.agentRuns.filter((run) => matchesAgentRunFilters(run, filters)).slice(0, filters.limit));
+    const runs = db.agentRuns.filter((run) => matchesAgentRunFilters(run, filters)).slice(0, filters.limit);
+    return clone({
+      runs,
+      summary: summarizeAgentRuns(runs),
+    });
+  },
+
+  async getAgentRuns(options: string | AgentRunListOptions = {}): Promise<AgentRun[]> {
+    const report = await this.getAgentRunReport(options);
+    return report.runs;
   },
 
   async createChapterJob(novelId: string, chapterIndex: number, kind: ChapterJobKind): Promise<ApiJob> {

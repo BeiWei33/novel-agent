@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { AgentRole, AgentRun, AgentRunStatus, AgentTask } from "../types/domain";
+import type { AgentRole, AgentRun, AgentRunStatus, AgentRunStatusSummary, AgentTask } from "../types/domain";
 import { api, queryKeys } from "../lib/api";
 import type { AgentRunListOptions } from "../lib/api";
 import { agentRoleLabels, agentTaskLabels, formatDateTime, formatDuration } from "../lib/format";
@@ -30,10 +30,10 @@ export function AgentRunsPage() {
   );
   const runsQuery = useQuery({
     queryKey: queryKeys.agentRuns(runOptions),
-    queryFn: () => api.getAgentRuns(runOptions),
+    queryFn: () => api.getAgentRunReport(runOptions),
     refetchInterval: 10_000,
   });
-  const runs = runsQuery.data ?? [];
+  const runs = runsQuery.data?.runs ?? [];
   const filteredRuns = useMemo(
     () =>
       runs.filter((run) => {
@@ -54,6 +54,10 @@ export function AgentRunsPage() {
     [providerFilter, roleFilter, runs, statusFilter, taskFilter],
   );
   const activeRun = selectedRunId ? (filteredRuns.find((run) => run.id === selectedRunId) ?? filteredRuns[0] ?? null) : filteredRuns[0] ?? null;
+  const summary = useMemo(
+    () => (providerFilter === "all" ? (runsQuery.data?.summary ?? summarizePageAgentRuns(filteredRuns)) : summarizePageAgentRuns(filteredRuns)),
+    [filteredRuns, providerFilter, runsQuery.data?.summary],
+  );
 
   return (
     <div>
@@ -95,6 +99,7 @@ export function AgentRunsPage() {
               setSelectedRunId(null);
             }}
           />
+          <AgentRunSummaryBar summary={summary} />
           <div className="grid min-h-[620px] grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]">
             {filteredRuns.length > 0 ? (
               <AgentRunTable runs={filteredRuns} selectedRunId={activeRun?.id} onSelectRun={(run) => setSelectedRunId(run.id)} />
@@ -122,6 +127,41 @@ export function AgentRunsPage() {
           </div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+function AgentRunSummaryBar({ summary }: { summary: AgentRunStatusSummary }) {
+  const badRuns = summary.fallback + summary.parse_error;
+  return (
+    <div className="grid grid-cols-2 gap-3 border-b border-line bg-slate-50 px-4 py-3 text-xs md:grid-cols-4 xl:grid-cols-8">
+      <SummaryMetric label="总数" value={formatNumber(summary.total)} />
+      <SummaryMetric label="ok" value={formatNumber(summary.ok)} tone="teal" />
+      <SummaryMetric label="异常" value={formatNumber(badRuns)} tone={badRuns > 0 ? "rose" : "slate"} />
+      <SummaryMetric label="fallback" value={formatNumber(summary.fallback)} />
+      <SummaryMetric label="parse_error" value={formatNumber(summary.parse_error)} />
+      <SummaryMetric label="总耗时" value={formatDuration(summary.duration_ms_total)} />
+      <SummaryMetric label="token runs" value={formatNumber(summary.tokenized_runs)} />
+      <SummaryMetric label="tokens" value={formatNumber(summary.total_tokens)} />
+    </div>
+  );
+}
+
+function SummaryMetric({
+  label,
+  value,
+  tone = "slate",
+}: {
+  label: string;
+  value: string;
+  tone?: "slate" | "teal" | "rose";
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-slate-500">{label}</div>
+      <div className={`mt-1 truncate text-sm font-semibold ${tone === "teal" ? "text-teal-700" : tone === "rose" ? "text-rose-700" : "text-ink"}`}>
+        {value}
+      </div>
     </div>
   );
 }
@@ -228,6 +268,8 @@ function AgentRunDetail({ run }: { run: AgentRun | null }) {
         <dl className="grid grid-cols-2 gap-3 text-xs">
           <DetailItem label="provider" value={run.provider} />
           <DetailItem label="耗时" value={formatDuration(run.duration_ms)} />
+          <DetailItem label="attempt" value={run.attempt ? String(run.attempt) : "-"} />
+          <DetailItem label="tokens" value={typeof run.total_tokens === "number" ? formatNumber(run.total_tokens) : "-"} />
           <DetailItem label="时间" value={formatDateTime(run.created_at)} />
           <DetailItem label="novel_id" value={run.novel_id ?? "-"} />
         </dl>
@@ -245,6 +287,42 @@ function AgentRunDetail({ run }: { run: AgentRun | null }) {
       </div>
     </aside>
   );
+}
+
+function summarizePageAgentRuns(runs: AgentRun[]): AgentRunStatusSummary {
+  return runs.reduce(
+    (summary, run) => {
+      summary.total += 1;
+      if (run.status === "ok") {
+        summary.ok += 1;
+      } else if (run.status === "fallback") {
+        summary.fallback += 1;
+      } else if (run.status === "parse_error") {
+        summary.parse_error += 1;
+      }
+      summary.duration_ms_total += run.duration_ms;
+      if (typeof run.total_tokens === "number") {
+        summary.tokenized_runs += 1;
+        summary.total_tokens += run.total_tokens;
+      }
+      return summary;
+    },
+    {
+      total: 0,
+      ok: 0,
+      fallback: 0,
+      parse_error: 0,
+      duration_ms_total: 0,
+      tokenized_runs: 0,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+    },
+  );
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("zh-CN").format(value);
 }
 
 function DetailItem({ label, value }: { label: string; value: string }) {
