@@ -373,15 +373,83 @@ function JobResultLink({ job }: { job: ApiJob }) {
     return null;
   }
 
-  const chapterIndex = job.chapter_index;
-  const to = chapterIndex ? `/novels/${targetNovelId}/chapters/${chapterIndex}` : `/novels/${targetNovelId}`;
+  const chapterLinks = getJobChapterLinks(job);
   return (
-    <Link to={to}>
-      <Button variant="secondary" className="w-full">
-        {chapterIndex ? "打开章节" : "打开作品"}
-      </Button>
-    </Link>
+    <div className="grid gap-2">
+      <Link to={`/novels/${targetNovelId}`}>
+        <Button variant={chapterLinks.length > 0 ? "ghost" : "secondary"} className="w-full">
+          打开作品
+        </Button>
+      </Link>
+      {chapterLinks.map((link) => (
+        <Link key={`${link.label}-${link.chapterIndex}`} to={`/novels/${targetNovelId}/chapters/${link.chapterIndex}`}>
+          <Button variant="secondary" className="w-full">
+            {link.label}
+          </Button>
+        </Link>
+      ))}
+    </div>
   );
+}
+
+function getJobChapterLinks(job: ApiJob): Array<{ label: string; chapterIndex: number }> {
+  const indexes = getJobChapterIndexes(job);
+  if (indexes.length === 0) {
+    return [];
+  }
+  if (job.kind !== "write_chapters") {
+    return [{ label: "打开章节", chapterIndex: indexes[0] }];
+  }
+  const first = indexes[0];
+  const last = indexes[indexes.length - 1];
+  if (first === last) {
+    return [{ label: "打开章节", chapterIndex: first }];
+  }
+  return [
+    { label: "打开首章", chapterIndex: first },
+    { label: "打开末章", chapterIndex: last },
+  ];
+}
+
+function getJobChapterIndexes(job: ApiJob): number[] {
+  const indexes: number[] = [];
+  const addIndex = (value: unknown) => {
+    const index = toChapterIndex(value);
+    if (index) {
+      indexes.push(index);
+    }
+  };
+
+  addIndex(job.chapter_index);
+  addIndex(job.payload.chapter_index);
+  addIndex(job.result?.chapter_index);
+  addIndex(job.payload.chapter_start);
+  addIndex(job.payload.chapter_end);
+  addIndex(job.result?.chapter_start);
+  addIndex(job.result?.chapter_end);
+  addDraftIndexes(job.payload.drafts, addIndex);
+  addDraftIndexes(job.result?.drafts, addIndex);
+
+  return [...new Set(indexes)].sort((a, b) => a - b);
+}
+
+function addDraftIndexes(value: unknown, addIndex: (value: unknown) => void): void {
+  if (!Array.isArray(value)) {
+    return;
+  }
+  value.forEach((item) => {
+    if (item && typeof item === "object" && "chapter_index" in item) {
+      addIndex(item.chapter_index);
+    }
+  });
+}
+
+function toChapterIndex(value: unknown): number | null {
+  const numberValue = typeof value === "number" ? value : typeof value === "string" ? Number.parseInt(value, 10) : Number.NaN;
+  if (!Number.isInteger(numberValue) || numberValue < 1) {
+    return null;
+  }
+  return numberValue;
 }
 
 function JsonBlock({ title, value }: { title: string; value: unknown }) {
