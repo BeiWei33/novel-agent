@@ -11,6 +11,10 @@ pub use smoke_provider::SmokeModelClient;
 
 #[async_trait]
 pub trait ModelClient: Send + Sync {
+    fn metadata(&self) -> ModelMetadata {
+        ModelMetadata::unknown()
+    }
+
     async fn complete(&self, request: ModelRequest) -> Result<ModelResponse, ModelError>;
 
     async fn complete_stream(
@@ -19,6 +23,33 @@ pub trait ModelClient: Send + Sync {
     ) -> Result<ModelStreamResponse, ModelError> {
         let response = self.complete(request).await?;
         Ok(ModelStreamResponse::from_response(response))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelMetadata {
+    pub provider: String,
+    pub model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+}
+
+impl ModelMetadata {
+    pub fn new(provider: impl Into<String>, model: impl Into<String>) -> Self {
+        Self {
+            provider: provider.into(),
+            model: model.into(),
+            reasoning_effort: None,
+        }
+    }
+
+    pub fn with_reasoning_effort(mut self, reasoning_effort: Option<String>) -> Self {
+        self.reasoning_effort = reasoning_effort.filter(|value| !value.trim().is_empty());
+        self
+    }
+
+    pub fn unknown() -> Self {
+        Self::new("unknown", "unknown")
     }
 }
 
@@ -100,6 +131,14 @@ impl ModelProvider {
             "deepseek" => Ok(Self::DeepSeek),
             "smoke" | "local" | "offline" => Ok(Self::Smoke),
             _ => Err(ModelError::UnsupportedProvider(value.to_string())),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenAi => "openai",
+            Self::DeepSeek => "deepseek",
+            Self::Smoke => "smoke",
         }
     }
 }

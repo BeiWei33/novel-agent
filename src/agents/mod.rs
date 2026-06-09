@@ -3,11 +3,11 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::domain::NovelId;
 use crate::error::{AgentError, ModelError};
-use crate::model::{ModelClient, ModelRequest};
+use crate::model::{ModelClient, ModelMetadata, ModelRequest};
 
 pub type ModelHandle = Arc<dyn ModelClient>;
 pub type MemoryHandle = Arc<dyn AgentMemory>;
@@ -79,7 +79,24 @@ impl NovelAgent for PromptAgent {
 
         let mut output = parse_agent_output(self.role, response.text);
         output.token_usage = response.usage;
+        attach_model_metadata(&mut output.structured, ctx.model.metadata());
         Ok(output)
+    }
+}
+
+fn attach_model_metadata(structured: &mut Value, metadata: ModelMetadata) {
+    let metadata = serde_json::to_value(metadata).unwrap_or_else(|_| json!({}));
+    match structured {
+        Value::Object(map) => {
+            map.insert("_model".to_string(), metadata);
+        }
+        _ => {
+            let value = std::mem::take(structured);
+            *structured = json!({
+                "value": value,
+                "_model": metadata
+            });
+        }
     }
 }
 

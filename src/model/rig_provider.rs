@@ -4,7 +4,7 @@ use rig_core::completion::Prompt;
 use rig_core::providers::{deepseek, openai};
 use serde_json::json;
 
-use super::{ModelClient, ModelProvider, ModelRequest, ModelResponse};
+use super::{ModelClient, ModelMetadata, ModelProvider, ModelRequest, ModelResponse};
 use crate::error::ModelError;
 
 #[derive(Debug, Clone)]
@@ -31,6 +31,11 @@ impl RigModelClient {
 
 #[async_trait]
 impl ModelClient for RigModelClient {
+    fn metadata(&self) -> ModelMetadata {
+        ModelMetadata::new(self.provider.as_str(), self.model.clone())
+            .with_reasoning_effort(self.reasoning_effort.clone())
+    }
+
     async fn complete(&self, request: ModelRequest) -> Result<ModelResponse, ModelError> {
         match self.provider {
             ModelProvider::OpenAi => self.complete_openai(request).await,

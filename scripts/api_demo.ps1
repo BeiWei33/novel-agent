@@ -477,6 +477,10 @@ try {
     if ($null -ne $wrongWriterRun) {
         throw "Filtered AgentRun API returned unexpected role/task/status."
     }
+    $wrongWriterModel = $writerRuns.runs | Where-Object { $_.provider -ne $Provider -or $_.model -ne $Model } | Select-Object -First 1
+    if ($null -ne $wrongWriterModel) {
+        throw "Filtered AgentRun API returned unexpected provider/model metadata."
+    }
     $globalWriterRuns = Invoke-ApiJson "global filtered agent runs" "Get" "/api/runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&status=ok"
     if ($globalWriterRuns.runs.Count -ne $writerRuns.runs.Count) {
         throw "Global filtered AgentRun API returned different count from novel-scoped query."
@@ -489,6 +493,9 @@ try {
     $runDetail = Invoke-ApiJson "agent run detail" "Get" "/api/runs/$RunId"
     if ($runDetail.run.id -ne $RunId -or $runDetail.run.novel_id -ne $NovelId) {
         throw "AgentRun detail API returned wrong run."
+    }
+    if ($runDetail.run.provider -ne $Provider -or $runDetail.run.model -ne $Model) {
+        throw "AgentRun detail API returned wrong provider/model metadata."
     }
     $aliasRuns = Invoke-ApiJson "agent runs alias" "Get" "/api/agent-runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&status=ok"
     if ($aliasRuns.runs.Count -ne $globalWriterRuns.runs.Count) {

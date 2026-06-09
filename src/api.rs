@@ -2,19 +2,19 @@ use std::convert::Infallible;
 use std::str::FromStr;
 
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::{
-        sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
     },
     routing::{get, post, put},
-    Json, Router,
 };
 use chrono::Utc;
-use futures_util::{stream, Stream};
+use futures_util::{Stream, stream};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower_http::cors::CorsLayer;
 
 use crate::agents::ModelHandle;
@@ -218,7 +218,7 @@ async fn retry_job(
         other => {
             return Err(ApiError::bad_request(format!(
                 "job kind `{other}` cannot be retried"
-            )))
+            )));
         }
     };
 
@@ -1057,7 +1057,7 @@ async fn retry_chapter_job(
         _ => {
             return Err(ApiError::bad_request(format!(
                 "job kind `{kind}` cannot be retried"
-            )))
+            )));
         }
     }
 
@@ -1660,6 +1660,9 @@ struct AgentRunResponse {
     novel_id: Option<String>,
     role: String,
     task: String,
+    provider: Option<String>,
+    model: Option<String>,
+    reasoning_effort: Option<String>,
     status: String,
     attempt: Option<u64>,
     duration_ms: Option<u64>,
@@ -1679,6 +1682,9 @@ impl AgentRunResponse {
             novel_id: run.novel_id.as_ref().map(ToString::to_string),
             role: run.role.clone(),
             task: run.task.clone(),
+            provider: agent_run_model_metadata_field(run, "provider"),
+            model: agent_run_model_metadata_field(run, "model"),
+            reasoning_effort: agent_run_model_metadata_field(run, "reasoning_effort"),
             status: run.status().as_str().to_string(),
             attempt: run.attempt(),
             duration_ms: run.duration_ms(),
@@ -1691,6 +1697,20 @@ impl AgentRunResponse {
             created_at: run.created_at.to_rfc3339(),
         }
     }
+}
+
+fn agent_run_model_metadata_field(run: &AgentRunRecord, field: &str) -> Option<String> {
+    run.structured
+        .get("_model")
+        .and_then(|metadata| metadata.get(field))
+        .or_else(|| {
+            run.structured
+                .get("_engineering")
+                .and_then(|metadata| metadata.get(field))
+        })
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
 }
 
 fn summarize_agent_run(run: &AgentRunRecord) -> String {
@@ -1796,7 +1816,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use axum::body::{to_bytes, Body};
+    use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
     use uuid::Uuid;
@@ -1848,10 +1868,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(cors_response.status(), StatusCode::OK);
-        assert!(cors_response
-            .headers()
-            .get("access-control-allow-origin")
-            .is_some());
+        assert!(
+            cors_response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_some()
+        );
 
         let create_response = app
             .clone()
@@ -1920,11 +1942,13 @@ mod tests {
         assert_eq!(characters_response.status(), StatusCode::OK);
         let characters_json = response_json(characters_response).await;
         assert!(!characters_json["characters"].as_array().unwrap().is_empty());
-        assert!(characters_json["characters"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|character| character["novel_id"].as_str() == Some(novel_id)));
+        assert!(
+            characters_json["characters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|character| character["novel_id"].as_str() == Some(novel_id))
+        );
 
         let world_setting_response = app
             .clone()
@@ -1950,9 +1974,11 @@ mod tests {
         let facts_json = response_json(facts_response).await;
         let facts = facts_json["facts"].as_array().unwrap();
         assert!(!facts.is_empty());
-        assert!(facts
-            .iter()
-            .all(|fact| fact["novel_id"].as_str() == Some(novel_id)));
+        assert!(
+            facts
+                .iter()
+                .all(|fact| fact["novel_id"].as_str() == Some(novel_id))
+        );
 
         let write_response = app
             .clone()
@@ -2069,16 +2095,20 @@ mod tests {
             .unwrap();
         assert_eq!(versions_response.status(), StatusCode::OK);
         let versions_json = response_json(versions_response).await;
-        assert!(versions_json["versions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|version| version.as_u64() == Some(2)));
-        assert!(versions_json["versions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|version| version.as_u64() == Some(3)));
+        assert!(
+            versions_json["versions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|version| version.as_u64() == Some(2))
+        );
+        assert!(
+            versions_json["versions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|version| version.as_u64() == Some(3))
+        );
 
         let empty_manual_edit_response = app
             .clone()
@@ -2102,13 +2132,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(stream_response.status(), StatusCode::OK);
-        assert!(stream_response
-            .headers()
-            .get("content-type")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("text/event-stream"));
+        assert!(
+            stream_response
+                .headers()
+                .get("content-type")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/event-stream")
+        );
         let stream_text = response_text(stream_response).await;
         assert!(stream_text.contains("event: started"));
         assert!(stream_text.contains("\"chapter_index\":2"));
@@ -2176,11 +2208,13 @@ mod tests {
             .unwrap();
         assert_eq!(jobs_response.status(), StatusCode::OK);
         let jobs_json = response_json(jobs_response).await;
-        assert!(jobs_json["jobs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|job| job["id"].as_str() == Some(job_id)));
+        assert!(
+            jobs_json["jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|job| job["id"].as_str() == Some(job_id))
+        );
 
         let novel_jobs_response = app
             .clone()
@@ -2192,16 +2226,20 @@ mod tests {
             .unwrap();
         assert_eq!(novel_jobs_response.status(), StatusCode::OK);
         let novel_jobs_json = response_json(novel_jobs_response).await;
-        assert!(novel_jobs_json["jobs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|job| job["id"].as_str() == Some(job_id)));
-        assert!(novel_jobs_json["jobs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|job| job["novel_id"].as_str() == Some(novel_id)));
+        assert!(
+            novel_jobs_json["jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|job| job["id"].as_str() == Some(job_id))
+        );
+        assert!(
+            novel_jobs_json["jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|job| job["novel_id"].as_str() == Some(novel_id))
+        );
 
         let restarted_app = router(
             storage.clone(),
@@ -2318,19 +2356,23 @@ mod tests {
             .unwrap();
         assert_eq!(filtered_jobs_response.status(), StatusCode::OK);
         let filtered_jobs_json = response_json(filtered_jobs_response).await;
-        assert!(filtered_jobs_json["jobs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|job| job["id"].as_str() == Some(batch_job_id)));
-        assert!(filtered_jobs_json["jobs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|job| {
-                job["status"].as_str() == Some("succeeded")
-                    && job["kind"].as_str() == Some("write_chapters")
-            }));
+        assert!(
+            filtered_jobs_json["jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|job| job["id"].as_str() == Some(batch_job_id))
+        );
+        assert!(
+            filtered_jobs_json["jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|job| {
+                    job["status"].as_str() == Some("succeeded")
+                        && job["kind"].as_str() == Some("write_chapters")
+                })
+        );
 
         let invalid_status_response = app
             .clone()
@@ -2456,19 +2498,23 @@ mod tests {
             .unwrap();
         assert_eq!(source_jobs_response.status(), StatusCode::OK);
         let source_jobs_json = response_json(source_jobs_response).await;
-        assert!(source_jobs_json["jobs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|job| job["id"].as_str() == Some(retried_job_id)));
-        assert!(source_jobs_json["jobs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|job| {
-                job["source_job_id"].as_str() == Some(failed_source_job.id.as_str())
-                    && job["novel_id"].as_str() == Some(novel_id)
-            }));
+        assert!(
+            source_jobs_json["jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|job| job["id"].as_str() == Some(retried_job_id))
+        );
+        assert!(
+            source_jobs_json["jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|job| {
+                    job["source_job_id"].as_str() == Some(failed_source_job.id.as_str())
+                        && job["novel_id"].as_str() == Some(novel_id)
+                })
+        );
 
         let mut retried_job_json = Value::Null;
         for _ in 0..20 {
@@ -2644,14 +2690,12 @@ mod tests {
         assert_eq!(runs_json["summary"]["parse_error"].as_u64(), Some(0));
         assert!(runs_json["summary"]["tokenized_runs"].as_u64().unwrap() > 0);
         assert!(runs_json["summary"]["total_tokens"].as_u64().unwrap() > 0);
-        assert!(runs_json["runs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|run| run["output_summary"]
+        assert!(runs_json["runs"].as_array().unwrap().iter().all(|run| {
+            run["output_summary"]
                 .as_str()
                 .map(|summary| !summary.is_empty())
-                .unwrap_or(false)));
+                .unwrap_or(false)
+        }));
 
         let filtered_runs_response = app
             .clone()
@@ -2670,6 +2714,8 @@ mod tests {
         assert!(filtered_runs.iter().all(|run| {
             run["role"].as_str() == Some("writer")
                 && run["task"].as_str() == Some("generate_chapter")
+                && run["provider"].as_str() == Some("smoke")
+                && run["model"].as_str() == Some("smoke")
                 && run["status"].as_str() == Some("ok")
         }));
         assert_eq!(
@@ -2708,6 +2754,8 @@ mod tests {
         let run_detail_json = response_json(run_detail_response).await;
         assert_eq!(run_detail_json["run"]["id"].as_str(), Some(first_run_id));
         assert_eq!(run_detail_json["run"]["novel_id"].as_str(), Some(novel_id));
+        assert_eq!(run_detail_json["run"]["provider"].as_str(), Some("smoke"));
+        assert_eq!(run_detail_json["run"]["model"].as_str(), Some("smoke"));
 
         let agent_runs_alias_response = app
             .clone()
@@ -2750,13 +2798,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(agent_runs_stream_response.status(), StatusCode::OK);
-        assert!(agent_runs_stream_response
-            .headers()
-            .get("content-type")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("text/event-stream"));
+        assert!(
+            agent_runs_stream_response
+                .headers()
+                .get("content-type")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/event-stream")
+        );
         let agent_runs_stream_text = response_text(agent_runs_stream_response).await;
         assert!(agent_runs_stream_text.contains("event: snapshot"));
         assert!(agent_runs_stream_text.contains(first_run_id));

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{ModelClient, ModelRequest, ModelResponse, ModelUsage};
+use super::{ModelClient, ModelMetadata, ModelRequest, ModelResponse, ModelUsage};
 use crate::error::ModelError;
 
 #[derive(Debug, Clone)]
@@ -19,6 +19,10 @@ impl SmokeModelClient {
 
 #[async_trait]
 impl ModelClient for SmokeModelClient {
+    fn metadata(&self) -> ModelMetadata {
+        ModelMetadata::new("smoke", self.model.clone())
+    }
+
     async fn complete(&self, request: ModelRequest) -> Result<ModelResponse, ModelError> {
         let system = request.system_prompt.as_deref().unwrap_or_default();
         let role = role_for_system(system);
