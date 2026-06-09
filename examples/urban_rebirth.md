@@ -79,6 +79,11 @@
       "require_character_state_updates": true,
       "max_high_severity_issues": 0
     },
+    "cross_artifact_consistency": {
+      "must_match": ["主角姓名", "罚款或欠薪金额", "合作或竞争状态"],
+      "critical_fields": ["protagonist_name", "money_amounts", "cooperation_status"],
+      "max_high_severity_issues": 0
+    },
     "style": {
       "must_preserve": ["商业决策逻辑", "主角主动性", "章尾钩子"],
       "must_improve": ["压缩前世解释", "提高行动和对白比例", "降低行业分析腔", "强化外部阻力", "补清失败代价", "章尾给出具体下一步压力"],

@@ -31,7 +31,7 @@
 - 已提供 Web 工作台内容展示指南，覆盖审稿面板、返工类型、连续性侧栏、事实表、AgentRun 摘要和 3 个 UI demo 项目来源。
 - 已提供人工评测表，用于对比 provider、prompt 版本和题材样例的生成质量。
 - 已记录真实模型人工评测样例和 provider 对照摘要，覆盖 `gpt-5.5 + xhigh` 和 DeepSeek 都市重生第 1 章。
-- 已提供 Prompt 版本记录，当前 bundle 为 `b-quality-2026-06-09-r3`。
+- 已提供 Prompt 版本记录，当前 bundle 为 `b-quality-2026-06-10-v0.3-guard`。
 - 已提供 Web demo 内容包，主展示项目为都市重生商业文《重回外卖站》。
 - 已提供失败样例库，用于沉淀 provider error、parse error 和质量退化回归。
 - 已将 DeepSeek 对照样本暴露出的商业谈判过顺、章尾压力不足问题反灌到 Market / Plot / Writer / Reviewer Prompt。

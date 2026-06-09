@@ -40,7 +40,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
 
 ```text
 cargo check ok
-cargo test: api/storage unit 3 passed; smoke tests 14 passed; 0 failed
+cargo test: unit/API/storage 4 passed; smoke tests 18 passed; 0 failed
 mvp_demo.ps1: new / outline / write / review / rewrite / versions / edit / versions / export / runs all ok
 mvp_demo.ps1 -StreamWrite: write / rewrite stream output observed; edit and v2/v3 compare observed
 api_demo.ps1: CORS / create / list / write / review / SSE / jobs / export / runs all ok
@@ -161,7 +161,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepse
 - 快速真实链路可跳过重复 `outline` 和 `rewrite`，用于先验证真实 provider 能稳定返回合法 AgentOutput。
 - 若本地 OpenAI-compatible 代理在真实模型调用中出现子进程级中断，可设置 `-CheckpointResumes` 让脚本在同次运行中复用已成功的 AgentRun 继续；章节写作续跑会复用同章 Writer / Continuity / Style 检查点，也可保留脚本输出的 `work_dir` 和 `resume_novel_id`，用 `-WorkDir` / `-ResumeNovelId` 手动续跑。
 
-当前环境说明：DeepSeek key 已可见；完整 DeepSeek demo 已通过，`agent_run_summary total=23 ok=23 fallback=0 parse_error=0`。本地 cliproxyapi 已验证 `/v1/models`、`chat/completions`、`gpt-5.5 + reasoning_effort=xhigh`，并用 novel-agent 2 章快速无重试链路跑通，`agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=799126`。6 章链路已先后完成手动检查点续跑和同次检查点续跑验证；最新从头执行 `-CheckpointResumes 6` 已完成 `new -> write -> review -> export -> runs`，最终 `agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=639102`、`export_size=20616`。历史上本地 provider 曾出现子进程 `exit code -1`，后续真实压测仍建议保留 `work_dir` / `resume_novel_id` 以便恢复。
+当前环境说明：DeepSeek key 已可见；完整 DeepSeek demo 已通过，`agent_run_summary total=23 ok=23 fallback=0 parse_error=0`。本地 cliproxyapi 已验证 `/v1/models`、`chat/completions`、`gpt-5.5 + reasoning_effort=xhigh`。在 Prompt bundle `b-quality-2026-06-09-r3` 下，`gpt-5.5 xhigh` 2 章快速链路通过，`agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=635468`；DeepSeek 2 章快速链路通过，`agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=189155`；`gpt-5.5 xhigh` 6 章链路从头执行 `-CheckpointResumes 6` 通过，`agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=733844`、`export_size=18835`。在 Prompt bundle `b-quality-2026-06-10-v0.3-guard` 下，`localhost:3001/v1` 的 `gpt-5.5 xhigh` 2 章快速链路检查点续跑通过，`agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=1164764`、`export_size=15442`，ReviewReport `total_score=80 passed=false`，说明链路可用且一致性硬门生效。历史上本地 provider 曾出现子进程 `exit code -1`，本轮 r3 6 章复跑未复现；后续真实压测仍建议保留 `work_dir` / `resume_novel_id` 以便恢复。
 
 ## 5. 已知边界
 
@@ -174,6 +174,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepse
 
 ## 6. 下一步建议
 
-- 对 `gpt-5.5 + reasoning_effort=xhigh` 继续执行完整默认链路压测，并用 `-CheckpointResumes` / `-WorkDir` / `-ResumeNovelId` 保留续跑证据，观察 provider 子进程中断是否仍会复现。
-- 将真实模型输出失败样例整理进 Prompt/Schema 回归。
-- 做一次提交前文件清单复核，确认本轮 A/B 改动均应纳入同一提交或拆分提交。
+- 后续每次 Prompt bundle 更新后，继续按 `docs/PROMPT_CHANGELOG.md` 记录真实 provider 复跑结果。
+- 如果真实模型输出出现新的弱样本或失败样例，写入 `docs/FAILURE_CASES.md` 并补 Prompt/Schema/expected_checks 回归。
+- 做一次提交前文件清单复核，确认本轮 A/B/C 改动均应纳入同一提交或拆分提交。

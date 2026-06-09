@@ -79,6 +79,11 @@
       "require_character_state_updates": true,
       "max_high_severity_issues": 0
     },
+    "cross_artifact_consistency": {
+      "must_match": ["主角姓名", "因果债状态", "妹妹状态"],
+      "critical_fields": ["protagonist_name", "debt_state", "family_status"],
+      "max_high_severity_issues": 0
+    },
     "style": {
       "must_preserve": ["因果债规则", "战斗局势变化", "长期伏笔"],
       "must_improve": ["减少设定堆叠", "强化战斗画面", "突出能力代价"],

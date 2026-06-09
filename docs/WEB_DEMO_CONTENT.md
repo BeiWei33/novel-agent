@@ -19,7 +19,26 @@
 | 展示章节 | 第 1 章《暴雨回站》 |
 | 展示状态 | Web demo 候选 |
 | 内容来源 | 人工整理展示稿，基于 `examples/urban_rebirth.md` 与真实评测问题反推 |
-| prompt_bundle | `b-quality-2026-06-09-r3` 展示口径 |
+| prompt_bundle | `b-quality-2026-06-10-v0.3-guard` 展示口径 |
+
+真实模型替换候选：
+
+| 字段 | 内容 |
+| --- | --- |
+| 来源 | `gpt-5.5 xhigh` r3 6 章真实链路 |
+| novel_id | `ea942e57-abea-42cf-8fff-287b64017b41` |
+| 章节 | 第 1 章《暴雨夜，重回青河路》 |
+| AgentRun summary | `total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=733844` |
+| ReviewReport | `total_score=86 passed=true` |
+| 人工评测 | 43 / 50 |
+| 使用建议 | 可在 C 侧真实 API demo 中替换本文人工展示稿；进入展示前必须先修正 Bible 旧名、权限说明和行业解释过长问题 |
+
+v0.3 质量守门：
+
+- mock 展示稿按 `b-quality-2026-06-10-v0.3-guard` 口径维护。
+- 真实模型候选来自 `b-quality-2026-06-09-r3`，可作为 v0.3 基线样本，但不能冒充新 bundle 复跑结果。
+- 进入 Web 主展示前必须确认 Bible / outline / draft / facts 中的主角名、关键金额、合作状态一致。
+- 如果保留“真实候选待修”状态，质量视图必须显示 `一致性硬门待处理`，不要显示为完全可展示。
 
 为什么选它：
 

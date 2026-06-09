@@ -2529,3 +2529,176 @@ new -> outline -> write -> review -> rewrite -> versions -> edit -> export -> ru
 当前状态：
 
 - C 侧已有可直接 mock 的主 demo 内容包；B 侧真实失败与弱输出已有失败样例库，不再只散落在长审查记录里。
+
+## 67. 开发者 B 剩余质量任务一次性收口记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B/C 协作：`docs/WEB_DEMO_CONTENT.md` 已提供 Web demo 内容包，并补充 `gpt-5.5 xhigh` r3 6 章真实链路作为可替换人工展示稿的候选样本。
+- B-P2：`docs/FAILURE_CASES.md` 已沉淀质量退化、解析失败、provider 异常和评测流程四类失败样例；本轮同步更新本地 `gpt-5.5 xhigh` provider 子进程中断 case，标注 r3 6 章复跑未复现 `exit code -1`。
+- B-P2：`docs/EVAL_LOG.md` 已补齐 Prompt bundle `b-quality-2026-06-09-r3` 下三条真实复跑记录：`gpt-5.5 xhigh` 2 章快速链路、DeepSeek 2 章快速链路、`gpt-5.5 xhigh` 6 章链路。
+- B-P2：`docs/PROMPT_CHANGELOG.md` 已把 r3 的适用评测从计划状态更新为已完成真实复跑，并记录 provider、章节范围、novel_id、AgentRun summary 和人工质量结论。
+- B-P2：`docs/MVP_ACCEPTANCE.md` 已同步当前环境说明：DeepSeek key 可见，本地 cliproxyapi / `gpt-5.5 + reasoning_effort=xhigh` 可用，r3 真实复跑均为 `fallback=0 parse_error=0`。
+
+真实复跑结果：
+
+```text
+gpt-5.5 xhigh r3 2 章快速链路
+novel_id=9a81ecfe-e740-4625-9ade-f27ccd866a95
+agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=635468
+ReviewReport total_score=82 passed=false
+人工评分 41 / 50
+
+DeepSeek r3 2 章快速链路
+novel_id=2f286b6b-1ad8-4cff-8e6a-2866a48079ff
+agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=189155
+ReviewReport total_score=87 passed=true
+人工评分 38 / 50
+
+gpt-5.5 xhigh r3 6 章链路
+novel_id=ea942e57-abea-42cf-8fff-287b64017b41
+agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=733844
+ReviewReport total_score=86 passed=true
+人工评分 43 / 50
+```
+
+验证结果：
+
+```text
+最终保留 diff 为 B 线文档更新；Rust 源码和测试文件无最终 diff
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test with CARGO_TARGET_DIR=target\codex-b-clean
+unit/API/storage: 4 passed
+smoke tests: 18 passed
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- B 线本轮剩余质量任务已经收口；当前硬阻塞为 0。
+- 后续只剩持续性维护：每次 Prompt bundle 更新后继续记录真实 provider 复跑；若出现新的弱样本或失败样例，再写入 `docs/FAILURE_CASES.md` 并补回归约束。
+
+## 68. 开发者 B v0.3 质量守门开发记录
+
+处理日期：2026-06-10
+
+已处理：
+
+- B/C 协作：`docs/WORKPLAN.md` 第 13 节已成为唯一 v0.3 权威开发计划；独立 `docs/NEXT_VERSION_PLAN.md` 已退场，避免 B/C 两份计划分叉。
+- B/C 协作：`.gitignore` 已忽略本地 `novel-agent-c/` worktree，避免 C 线 worktree 被当作普通子目录误提交。
+- B-P0：v0.3 推荐 Prompt bundle 更新为 `b-quality-2026-06-10-v0.3-guard`，只补强一致性和质量视图守门，不改变 `AgentOutputEnvelope` 或 Rust 行为。
+- B-P0：Writer / Continuity / Reviewer Prompt 已补充跨产物一致性约束，覆盖主角姓名、关键金额、债务、罚款、押金、合同状态、合作关系和敌对状态。
+- B-P0：`docs/RUBRIC.md` 新增 v0.3 一致性硬门；未解释的姓名、金额、合作状态冲突会压低 `continuity_score`，并阻塞通过。
+- B/C 协作：`docs/UI_CONTENT_GUIDE.md` 新增 v0.3 轻量质量视图口径，覆盖顶部质量条、一致性硬门卡片、返工待办分组和 demo 来源标识。
+- B-P1：三个 `examples/*.md` 的 `expected_checks` 已新增 `cross_artifact_consistency`，覆盖主角名、金额/状态/关系类关键字段。
+- B-P1：`docs/FAILURE_CASES.md` 新增 `quality-cross-artifact-001`，把 r3 样本暴露的人名、金额、合作状态不一致风险沉淀为固定失败样例。
+- B-P1：`tests/smoke.rs` 新增 `v03_quality_guard_documents_cross_artifact_consistency`，并加强样例 expected_checks 与失败样例库断言。
+- B-P2：`docs/HUMAN_EVAL.md`、`docs/EVAL_LOG.md`、`docs/PROMPT_CHANGELOG.md`、`docs/WEB_DEMO_CONTENT.md`、README 已同步 v0.3 guard bundle 和真实模型展示基线说明。
+
+验证结果：
+
+```text
+rustfmt --edition 2024 tests\smoke.rs
+ok
+
+$env:CARGO_TARGET_DIR='target\codex-test'; cargo check
+Finished `dev` profile ... ok
+
+$env:CARGO_TARGET_DIR='target\codex-test'; cargo test
+unit/API/storage: 4 passed
+smoke tests: 19 passed
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- B 线 v0.3 质量守门任务已完成；当前不再有 B 线硬阻塞。
+- 新 bundle 暂未做真实模型复跑；v0.3 Web demo 的真实模型展示基线仍使用 `b-quality-2026-06-09-r3` 的三条复跑记录，并已在文档中明确不能冒充新 bundle 结果。
+
+## 69. 开发者 B v0.3 guard gpt-5.5 xhigh 真实复跑记录
+
+处理日期：2026-06-10
+
+已处理：
+
+- B-P1：按用户提供的本地 OpenAI-compatible API 配置，在当前命令环境临时注入 `OPENAI_BASE_URL=http://localhost:3001/v1` 和 bearer token；token 未写入仓库、配置文件或文档。
+- B-P1：`/v1/models` 已确认可见 `gpt-5.5`；`chat/completions` 已接受 `model=gpt-5.5` 和 `reasoning_effort=xhigh`。
+- B-P1：在 Prompt bundle `b-quality-2026-06-10-v0.3-guard` 下完成 `gpt-5.5 xhigh` 2 章快速真实链路复跑。
+- B-P1：首次运行已完成 `new`，但在 `write` 阶段超过工具 15 分钟超时；随后使用同一 `work_dir` / `resume_novel_id` 和 `-CheckpointResumes 6` 续跑成功。
+- B-P1：`docs/EVAL_LOG.md` 已新增本次人工评测记录；`docs/PROMPT_CHANGELOG.md`、`docs/MVP_ACCEPTANCE.md`、`docs/FAILURE_CASES.md` 已同步本次真实复跑结论。
+
+真实复跑结果：
+
+```text
+provider / model: openai-compatible / gpt-5.5
+reasoning_effort: xhigh
+prompt_bundle: b-quality-2026-06-10-v0.3-guard
+novel_id: eac2af4a-e21c-483b-b684-42be44fed943
+work_dir: C:\Users\admin\AppData\Local\Temp\novel-agent-mvp-demo-985754f2564d46ac815e88bda880aa12
+AgentRun summary: total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=1164764 tokenized_runs=0
+ReviewReport: total_score=80 passed=false
+human score: 42 / 50
+export_size: 15442
+```
+
+质量结论：
+
+- 链路验收通过：9 个 AgentRun 全部 `ok`，没有 fallback / parse_error。
+- 文本可用但不直接进入 demo：开篇压力、录音反击、赌约和章尾商家争夺都强。
+- v0.3 一致性硬门生效：Reviewer 卡住费用期限、暴雨/爆单时间、责任单/押金/罚款状态不一致，因此 `passed=false`。
+
+当前状态：
+
+- `gpt-5.5 xhigh` 在 `localhost:3001/v1` 下可用于 novel-agent 真实链路。
+- v0.3 guard 已有首条真实复跑记录；如果要把新 bundle 作为 Web demo 正式展示基线，还需要修正一致性问题后复审，或继续跑 6 章链路。
+
+## 70. 开发者 A v0.3-rc1 最后一轮验收记录
+
+处理日期：2026-06-10
+
+已安排：
+
+- A 侧在 `docs/WORKPLAN.md` 追加 `v0.3-rc1 A 最后一轮验收安排`，明确 rc1 后端/API/脚本验收命令、通过标准和验收产物。
+- A 侧本轮只处理 API、storage、workflow、AgentRun/jobs、导出和端到端验收脚本的稳定性；Prompt 质量和 UI 表现问题分别回给 B/C。
+
+验收结果：
+
+```text
+$env:CARGO_TARGET_DIR='target\codex-rc1'; cargo check
+Finished `dev` profile ... ok
+
+$env:CARGO_TARGET_DIR='target\codex-rc1'; cargo test
+unit/API/storage: 4 passed
+smoke tests: 19 passed
+
+$env:CARGO_TARGET_DIR='target\codex-rc1'; powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+health / CORS / create / list / write / review / SSE / jobs / export / runs ok
+agent_run_total=21
+
+$env:CARGO_TARGET_DIR='target\codex-rc1'; powershell -ExecutionPolicy Bypass -File .\scripts\v03_e2e_demo.ps1
+status=ok
+novel_id=79d3c261-59cc-4e7a-850d-b3a96beab36a
+review_score=82
+export_chars=1844
+agent_run_total=19
+agent_run_bad=0
+agent_run_total_tokens=65286
+agent_run_total_cost_micro_usd=71362
+jobs_succeeded=1
+jobs_failed=0
+jobs_cancelled=0
+```
+
+当前状态：
+
+- A 侧 v0.3-rc1 最后一轮验收通过。
+- 前端构建在 `v03_e2e_demo.ps1` 中通过；仅保留 Vite chunk size warning，不影响 rc1 通过。

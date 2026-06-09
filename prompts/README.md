@@ -2,7 +2,7 @@
 
 本目录由开发者 B 维护，负责小说业务侧 Agent 的提示词模板。
 
-当前 Prompt bundle：`b-quality-2026-06-09-r3`，版本记录见 `docs/PROMPT_CHANGELOG.md`。
+当前 Prompt bundle：`b-quality-2026-06-10-v0.3-guard`，版本记录见 `docs/PROMPT_CHANGELOG.md`。
 
 约定：
 

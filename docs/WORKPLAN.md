@@ -163,7 +163,7 @@ novel-agent serve --config novel-agent.toml
 优先级 P2：
 
 - 已准备不同 provider 的生成效果对比表和判读规则，见 `docs/HUMAN_EVAL.md`；`gpt-5.5 xhigh` 与 DeepSeek 对照摘要见 `docs/EVAL_LOG.md`
-- 已提供 Prompt 版本记录，见 `docs/PROMPT_CHANGELOG.md`；当前 bundle 为 `b-quality-2026-06-09-r3`
+- 已提供 Prompt 版本记录，见 `docs/PROMPT_CHANGELOG.md`；当前 bundle 为 `b-quality-2026-06-10-v0.3-guard`
 - 已将评测日志关键元数据纳入 smoke 测试，新增记录必须包含 `prompt_bundle`、AgentRun summary 和人工总分
 - 已提供 Web demo 内容包，见 `docs/WEB_DEMO_CONTENT.md`；主 demo 为 `urban_rebirth_fanqie_demo`
 - 已提供失败样例库，见 `docs/FAILURE_CASES.md`
@@ -519,3 +519,298 @@ CLI MVP
 → React Web 工作台
 → 页面完成新建、生成、审稿、重写、版本、导出闭环
 ```
+
+## 13. v0.3 下一版本合并执行计划
+
+来源：开发者 B / C 的 v0.3 建议合并稿。
+建议版本：v0.3 Web 工作台真实闭环版。
+核心判断：v0.3 不继续优先堆 Agent、真实模型压测或外延功能，而是把现有 CLI / API / Prompt / Web demo 能力压成一条稳定可演示、可复测、可真实使用的浏览器工作台闭环。
+
+一句话目标：
+
+```text
+作者能在浏览器里完成：
+创建作品 -> 生成章节 -> 审稿返工 -> 人工编辑 -> 查看版本 -> 导出 Markdown -> 复盘 AgentRun / jobs / 质量证据
+```
+
+### 13.1 开发前必须先收口
+
+以下事项先于 v0.3 功能开发处理：
+
+- 明确 `novel-agent-c/` 的归属。它当前是 C 线 worktree，不应作为普通子目录提交进主仓库；需要把 C 线最新提交合并回主工作区，或将 worktree 移出项目目录。
+- 已将 B / C 的 v0.3 建议合并到本节；后续只以 `docs/WORKPLAN.md` 第 13 节作为权威 v0.3 开发计划，独立 `docs/NEXT_VERSION_PLAN.md` 不再保留。
+- 修正 Web 新建作品默认章节数。当前前端按 `target_words / chapter_words` 计算，默认会把 `1_200_000 / 2600` 转成约 462 章并发给 API；v0.3 应新增明确的“规划章节数”字段，默认 30 或 demo 用 6，总字数只作为展示元数据。
+- 本地测试命令固定独立 target，例如 `$env:CARGO_TARGET_DIR = "target\codex-test"` 后再执行 `cargo test`，避免运行中的 `target/debug/novel-agent.exe` 阻塞测试覆盖。
+- v0.3 的“真实 API 模式优先”默认解释为 `smoke provider + real REST API` 优先；OpenAI / DeepSeek 真实 provider 作为带 key 的专项验收，不要求每次本地或 CI 都调用外部模型。
+
+### 13.2 P0 主线
+
+#### P0-1：冻结 v0.3 API / DTO
+
+目标：让 Web 真实 API 模式稳定接入，不被字段和事件格式反复打断。
+
+冻结对象：
+
+- `Novel`
+- `NovelBible`
+- `CharacterCard`
+- `WorldSetting`
+- `Chapter`
+- `ChapterVersion`
+- `ReviewReport`
+- `ContinuityReport`
+- `Fact`
+- `AgentRun`
+- `ApiJob`
+
+规则：
+
+- 以 `docs/API.md` 和 `docs/INTERFACE_FREEZE.md` 为 v0.3 权威接口文档。
+- 新字段只能后向兼容新增。
+- 删除字段、改字段类型、改枚举语义必须进入下一版本。
+- `ReviewReport`、`ChapterVersion`、`AgentRun`、`ApiJob` 字段变动必须 A/B/C 同步确认。
+- v0.3 内除非阻塞 Web 主链路，不再扩张 API 面。
+
+验收：
+
+```powershell
+cargo test
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+```
+
+#### P0-2：Web 真实 API 主闭环
+
+目标：用户不需要理解 CLI 命令，也能完成主要创作流程。
+
+必须支持：
+
+- 打开作品列表。
+- 创建新作品。
+- 进入小说工作台。
+- 打开章节编辑器。
+- 生成第 1 章。
+- 审稿并查看 ReviewReport。
+- 按建议重写。
+- 保存人工编辑稿。
+- 查看版本列表和版本正文。
+- 导出 Markdown。
+- 查看本次 AgentRun。
+
+体验要求：
+
+- 第一屏就是工作台，不做营销首页。
+- 长文本编辑区足够大。
+- 生成、审稿、重写必须有清楚的进行中状态。
+- API 失败时显示作者能理解的错误和重试入口。
+- mock demo 保留为离线展示和 UI 回归兜底，但 v0.3 主验收切到 `VITE_USE_MOCK=false`。
+
+验收：
+
+```powershell
+npm.cmd --prefix apps/web run typecheck
+npm.cmd --prefix apps/web run build
+```
+
+并在浏览器真实 API 模式完成：
+
+```text
+新建 -> 生成 -> 审稿 -> 重写 -> 人工保存 -> 版本查看 -> 导出 -> AgentRun 查看
+```
+
+#### P0-3：后台任务体验补齐
+
+目标：把已有 jobs API 做成 Web 工作台可用能力。
+
+必须支持：
+
+- 任务列表按状态、类型、作品、retry 来源筛选。
+- 任务详情展示 `payload`、`result`、`error`、进度和 `source_job_id`。
+- failed 任务支持重试。
+- queued / running 任务支持取消。
+- 批量生成章节时显示章节范围和完成进度。
+- 从小说工作台跳转到当前作品任务队列。
+
+验收：
+
+```text
+Web 能创建后台写作任务
+jobs 页面能看到进度
+失败任务能重试
+排队或运行中任务能取消
+按 novel_id / status / kind / source_job_id 筛选有效
+```
+
+#### P0-4：轻量质量视图
+
+目标：让系统不只是“能生成”，还要能让作者看懂为什么过线、为什么返工、下一步改什么。
+
+第一版展示：
+
+- 当前章节 ReviewReport 总分和分项分数。
+- 是否通过当前平台通过线。
+- `rewrite_instruction` 的类型、优先级和目标。
+- Continuity / facts / 伏笔更新的关键摘要。
+- provider、model、reasoning_effort、prompt_bundle。
+- fallback / parse_error / 质量退化样例的明显提示。
+
+B 线要求：
+
+- v0.3 接入期暂不大改 Prompt bundle，避免主链路不稳定。
+- v0.3 推荐 prompt_bundle 为 `b-quality-2026-06-10-v0.3-guard`，只做一致性和质量视图守门补强，不改变 `AgentOutputEnvelope`。
+- demo 内容优先使用 `docs/WEB_DEMO_CONTENT.md` 的 `urban_rebirth_fanqie_demo`。
+- 真实模型展示候选使用 `gpt-5.5 xhigh` r3 6 章链路样本，但展示前必须修正旧名残留、权限说明和少量行业解释。
+- 补强一致性约束：Bible / outline / draft 的主角名、金额、合作状态必须一致。
+
+### 13.3 一键端到端验收脚本
+
+目标：减少 A/B/C 各自手工验证，形成一条可复测的 v0.3 demo 链路。
+
+建议新增脚本能力：
+
+```text
+启动临时 SQLite API
+-> 启动 Web 或静态预览
+-> 创建 demo 小说
+-> 生成章节
+-> 审稿
+-> 重写
+-> 保存人工编辑稿
+-> 导出 Markdown
+-> 查询 AgentRun 和 jobs
+-> 输出通过 / 失败摘要
+```
+
+验收输出至少包含：
+
+- `novel_id`
+- 生成章节数
+- 最新 ReviewReport 总分
+- 导出文件大小
+- AgentRun 总数、失败数、总耗时、总 token、总成本
+- jobs 成功 / 失败 / 取消数量
+- 失败时的 API 路径和错误消息
+
+脚本要求：
+
+- 使用临时 SQLite 配置，不依赖默认 `novel-agent.db`。
+- 使用独立 `CARGO_TARGET_DIR`。
+- 默认使用 `provider = "smoke"` 跑真实 REST API。
+- 可选参数再启用 OpenAI / DeepSeek 真实 provider。
+
+### 13.4 三方任务分工
+
+A 侧重点：真实 API 稳定性和验收脚本。
+
+- 合并 C 线代码后，冻结 v0.3 API / DTO。
+- 修 Web 真实 API 模式暴露的接口缺口。
+- 保持 `api_demo.ps1`、API smoke test、jobs、AgentRun、SSE、导出稳定。
+- 提供推荐本地启动命令、独立测试 target 说明和一键端到端验收脚本。
+
+B 侧重点：质量标准和展示内容守门。
+
+- 明确 v0.3 推荐 prompt_bundle。
+- 守住 Web demo 内容质量。
+- 补齐 expected checks 与失败样例分类。
+- 给质量视图提供展示口径。
+- 输出 1-2 条真实模型可复测样本，作为 v0.3 demo 基线。
+
+C 侧重点：真实模式 Web 闭环和任务体验。
+
+- 按冻结接口跑通 Web 真实 API 模式。
+- 修正新建作品章节数输入和默认值。
+- 完善 jobs 页面、任务详情、重试、取消和当前作品任务跳转。
+- 增加轻量质量视图。
+- 优化真实模型等待、失败、重试、取消时的 UI 状态。
+- 保留 mock demo 作为离线展示路径。
+
+### 13.5 v0.3 不做清单
+
+本版本明确不做：
+
+- Tauri 桌面版。
+- 多用户、权限、团队协作。
+- PostgreSQL / pgvector / Qdrant 生产化切换。
+- 复杂 RAG 和向量检索。
+- 自动发布到真实平台。
+- 收费系统。
+- 大规模 UI 重设计。
+- 大规模真实模型压测。
+- 新增大量 Agent。
+- 营销型官网首页。
+
+这些能力后续重要，但 v0.3 的核心价值是把现有能力变成可用产品，而不是扩大范围。
+
+### 13.6 v0.3 完成定义
+
+工程验收：
+
+```powershell
+$env:CARGO_TARGET_DIR = "target\codex-test"
+cargo check
+cargo test
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+npm.cmd --prefix apps/web run typecheck
+npm.cmd --prefix apps/web run build
+```
+
+产品验收：
+
+```text
+浏览器真实 API 模式完成：
+打开作品列表
+创建新作品
+进入小说工作台
+生成第 1 章
+查看生成中状态
+审稿
+查看 ReviewReport
+执行重写
+保存人工编辑稿
+查看版本列表和版本正文
+导出 Markdown
+查看本次 AgentRun
+查看相关 jobs
+```
+
+质量验收：
+
+```text
+Web demo 至少有一部可展示作品
+第 1 章内容不是占位文本、乱码或空文本
+审稿建议能转成作者下一步动作
+质量视图能解释是否过线和为什么返工
+fallback / parse_error 在 UI 中显眼
+错误提示对用户可读
+一次模型失败不会让页面进入不可恢复状态
+```
+
+v0.3 完成时，项目应从“CLI MVP + API + 文档齐全”推进到“可演示、可试用、可复测的 Web 创作工作台”。
+
+### 13.7 v0.3-rc1 A 最后一轮验收安排
+
+负责人：开发者 A
+
+目标：在 `v0.3-rc1` 提交后，确认后端 API、SQLite 迁移、AgentRun/jobs、导出和端到端验收脚本仍然稳定，给 B/C 最终 Web 和质量验收提供可信底座。
+
+验收命令：
+
+```powershell
+$env:CARGO_TARGET_DIR = "target\codex-rc1"
+cargo check
+cargo test
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\v03_e2e_demo.ps1
+```
+
+通过标准：
+
+- `cargo check` 和 `cargo test` 全部通过。
+- `api_demo.ps1` 覆盖 health、CORS、作品、章节、审稿、SSE、jobs、导出、AgentRun 和成本统计，退出码为 0。
+- `v03_e2e_demo.ps1` 默认 smoke provider 下完成真实 REST API 闭环，输出 `status=ok`。
+- AgentRun 汇总中 `fallback=0`、`parse_error=0`。
+- jobs 汇总中失败数为 0，批量写作 job 至少有 1 个 succeeded。
+
+验收产物：
+
+- 记录 `v03_e2e_demo.ps1` 输出的 `novel_id`、`work_dir`、`review_score`、`agent_run_total`、`agent_run_total_cost_micro_usd` 和 jobs 汇总。
+- 若任一命令失败，开发者 A 只修阻塞 Web 主闭环的 API / storage / workflow 问题；Prompt 质量和 UI 表现问题分别回给 B/C。

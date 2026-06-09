@@ -1238,6 +1238,12 @@ fn examples_expose_expected_checks_json() {
             checks["continuity"]["max_high_severity_issues"].as_i64(),
             Some(0)
         );
+        assert_non_empty_array(&checks["cross_artifact_consistency"]["must_match"]);
+        assert_non_empty_array(&checks["cross_artifact_consistency"]["critical_fields"]);
+        assert_eq!(
+            checks["cross_artifact_consistency"]["max_high_severity_issues"].as_i64(),
+            Some(0)
+        );
         assert_non_empty_array(&checks["style"]["must_preserve"]);
         assert_non_empty_array(&checks["style"]["must_improve"]);
         assert_non_empty_array(&checks["style"]["forbidden"]);
@@ -1275,6 +1281,7 @@ fn failure_cases_document_covers_known_failure_types() {
     let content = std::fs::read_to_string("docs/FAILURE_CASES.md").unwrap();
     for required in [
         "quality-urban-deepseek-001",
+        "quality-cross-artifact-001",
         "parse-deepseek-plot-001",
         "provider-openai-xhigh-001",
         "eval-metadata-001",
@@ -1288,6 +1295,43 @@ fn failure_cases_document_covers_known_failure_types() {
             "failure cases document should contain {required}"
         );
     }
+}
+
+#[test]
+fn v03_quality_guard_documents_cross_artifact_consistency() {
+    let prompt_readme = std::fs::read_to_string("prompts/README.md").unwrap();
+    assert!(prompt_readme.contains("b-quality-2026-06-10-v0.3-guard"));
+
+    let reviewer_prompt = std::fs::read_to_string("prompts/reviewer_agent.md").unwrap();
+    for required in [
+        "主角姓名",
+        "关键金额",
+        "合同状态",
+        "合作关系",
+        "continuity_score",
+        "passed",
+    ] {
+        assert!(
+            reviewer_prompt.contains(required),
+            "reviewer prompt should cover v0.3 consistency guard: {required}"
+        );
+    }
+
+    let continuity_prompt = std::fs::read_to_string("prompts/continuity_agent.md").unwrap();
+    for required in ["主角姓名", "关键金额", "合作/敌对状态", "severity = high"] {
+        assert!(
+            continuity_prompt.contains(required),
+            "continuity prompt should cover v0.3 consistency guard: {required}"
+        );
+    }
+
+    let rubric = std::fs::read_to_string("docs/RUBRIC.md").unwrap();
+    assert!(rubric.contains("v0.3 一致性硬门"));
+    assert!(rubric.contains("continuity_score"));
+
+    let ui_guide = std::fs::read_to_string("docs/UI_CONTENT_GUIDE.md").unwrap();
+    assert!(ui_guide.contains("v0.3 轻量质量视图"));
+    assert!(ui_guide.contains("一致性硬门"));
 }
 
 fn assert_non_empty_array(value: &serde_json::Value) {

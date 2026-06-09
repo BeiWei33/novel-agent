@@ -4,3 +4,4 @@
 *.db-wal
 /exports/
 novel-agent.toml
+novel-agent-c/

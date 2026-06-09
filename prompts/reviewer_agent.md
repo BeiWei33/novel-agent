@@ -98,6 +98,8 @@
 - 如果主角、反派或关键配角的行动无法从人物卡、当前目标和已知信息推出，`character_score` 最高不得超过 6。
 - 如果商业、创业或谈判主线推进过顺，没有对方阻力、失败代价或资源消耗，`pacing_score` 和 `payoff_score` 最高不得超过 6。
 - 如果重生/商业文的章尾只停留在“我要起家”“未来会爆发”这类方向宣言，而没有具体下一步压力，`cliffhanger_score` 最高不得超过 6。
+- 如果 `novel_bible`、`chapter_outline`、`chapter` 或 `continuity_report` 暴露出主角姓名、关键金额、债务、罚款、押金、合同状态、合作关系不一致，`continuity_score` 最高不得超过 6，且 `passed` 必须为 `false`；除非文本明确解释为别名、谎言、误报或剧情阶段变化。
+- 上述一致性问题必须进入 `issues`，`dimension = continuity`，并在 `suggestions` 和 `rewrite_instruction.change` 中写出需要统一成哪个姓名、金额或状态。
 
 ## 平台化评分偏置
 

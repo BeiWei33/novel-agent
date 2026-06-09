@@ -78,6 +78,11 @@
       "require_character_state_updates": true,
       "max_high_severity_issues": 0
     },
+    "cross_artifact_consistency": {
+      "must_match": ["女主姓名", "股权转让时间点", "合作或背叛状态"],
+      "critical_fields": ["protagonist_name", "deadline", "relationship_status"],
+      "max_high_severity_issues": 0
+    },
     "style": {
       "must_preserve": ["女主清醒反制", "证据链逻辑", "情绪爽点"],
       "must_improve": ["压缩解释", "强化签约现场压迫", "提高对白张力"],

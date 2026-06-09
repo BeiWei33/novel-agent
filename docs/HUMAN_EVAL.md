@@ -11,7 +11,7 @@
 每次评测选择同一创意、同一平台、同一章节范围和同一验收命令。建议至少记录：
 
 - provider / model / reasoning effort
-- prompt bundle 或 git commit，例如 `b-quality-2026-06-09-r3`
+- prompt bundle 或 git commit，例如 `b-quality-2026-06-10-v0.3-guard`
 - 题材样例
 - 章节编号
 - 是否出现 fallback / parse_error
@@ -28,7 +28,7 @@
 | provider | openai / deepseek / smoke |
 | model | gpt-5.5 / deepseek-v4-flash / smoke |
 | reasoning_effort | xhigh / high / none |
-| prompt_bundle | b-quality-2026-06-09-r3 |
+| prompt_bundle | b-quality-2026-06-10-v0.3-guard |
 | 题材 | 都市重生商业文 |
 | 平台 | fanqie |
 | novel_id | ... |
@@ -108,6 +108,7 @@
 | `weak_conflict` | 冲突弱、主角被动 | 调整 Plot/Writer 事件链 |
 | `weak_payoff` | 爽点或情绪回报不足 | 调整平台策略和 Reviewer 返工标准 |
 | `continuity_break` | 事实、人物状态或世界规则冲突 | 调整 Continuity Prompt 和事实输入 |
+| `cross_artifact_mismatch` | Bible / outline / draft / facts 中姓名、金额、合作状态不一致 | 先修一致性硬门，再判断文本质量 |
 | `style_ai_tone` | AI 腔、解释堆叠、对白同质 | 调整 Style Prompt |
 
 ## 6. Demo 入选标准
@@ -119,6 +120,7 @@
 - 人工评测总分 >= 38。
 - 连续性人工分 >= 4。
 - 章尾钩子人工分 >= 4。
+- 没有未解释的姓名、金额、合作状态跨产物不一致。
 - 没有明显抄袭、套壳或在世作者风格模仿风险。
 
 ## 7. Provider 对照判读
