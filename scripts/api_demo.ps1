@@ -214,6 +214,14 @@ try {
         throw "API server did not become ready at $BaseUrl."
     }
 
+    $health = Invoke-ApiJson "health metadata" "Get" "/health"
+    if ($health.status -ne "ok" -or $health.service -ne "novel-agent" -or [string]::IsNullOrWhiteSpace($health.checked_at)) {
+        throw "Health API returned incomplete metadata."
+    }
+    if ($health.sse -ne $true) {
+        throw "Health API should report sse=true."
+    }
+
     Write-Host "=== cors preflight ==="
     $cors = Invoke-WebRequest `
         -UseBasicParsing `

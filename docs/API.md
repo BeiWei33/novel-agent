@@ -47,7 +47,11 @@ GET /health
 
 ```json
 {
-  "status": "ok"
+  "status": "ok",
+  "service": "novel-agent",
+  "version": "0.1.0",
+  "checked_at": "2026-06-09T00:00:00Z",
+  "sse": true
 }
 ```
 

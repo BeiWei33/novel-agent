@@ -11,6 +11,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use chrono::Utc;
 use futures_util::{stream, Stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -131,6 +132,10 @@ pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
+        service: "novel-agent".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        checked_at: Utc::now().to_rfc3339(),
+        sse: true,
     })
 }
 
@@ -1479,6 +1484,10 @@ struct BatchWriteChaptersRequest {
 #[derive(Debug, Serialize)]
 struct HealthResponse {
     status: String,
+    service: String,
+    version: String,
+    checked_at: String,
+    sse: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -1771,6 +1780,22 @@ mod tests {
             storage.clone(),
             Arc::new(SmokeModelClient::new("smoke".to_string())),
         );
+
+        let health_response = app
+            .clone()
+            .oneshot(empty_request("GET", "/health"))
+            .await
+            .unwrap();
+        assert_eq!(health_response.status(), StatusCode::OK);
+        let health_json = response_json(health_response).await;
+        assert_eq!(health_json["status"].as_str(), Some("ok"));
+        assert_eq!(health_json["service"].as_str(), Some("novel-agent"));
+        assert_eq!(
+            health_json["version"].as_str(),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+        assert!(health_json["checked_at"].as_str().is_some());
+        assert_eq!(health_json["sse"].as_bool(), Some(true));
 
         let cors_response = app
             .clone()
