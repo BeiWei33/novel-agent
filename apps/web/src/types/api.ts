@@ -20,6 +20,14 @@ export interface ApiHealthStatus {
   sse?: boolean;
 }
 
+export type ApiModelProvider = "smoke" | "openai" | "deepseek";
+
+export interface ApiModelSettings {
+  provider: ApiModelProvider | (string & {});
+  model: string;
+  reasoning_effort?: string | null;
+}
+
 export interface ChapterStreamEvent {
   event:
     | "queued"

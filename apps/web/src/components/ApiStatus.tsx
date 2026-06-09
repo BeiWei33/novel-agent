@@ -3,6 +3,7 @@ import { RadioTower, Server, Wifi, WifiOff } from "lucide-react";
 import { api, queryKeys } from "../lib/api";
 import { formatDateTime } from "../lib/format";
 import { Badge } from "./ui/Badge";
+import { ModelSettingsPanel } from "./ModelSettingsPanel";
 
 export function ApiStatus() {
   const status = api.getClientStatus();
@@ -61,6 +62,7 @@ export function ApiStatus() {
           </span>
           <Badge tone={sseTone}>{sseLabel}</Badge>
         </div>
+        <ModelSettingsPanel />
       </div>
     </div>
   );
