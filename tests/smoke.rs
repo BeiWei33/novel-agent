@@ -434,10 +434,12 @@ async fn local_smoke_provider_drives_workflows_without_fallback() {
     let chapters = ChapterGenerationWorkflow::new(&storage, model);
     let draft = chapters.write_chapter(&result.novel.id, 1).await.unwrap();
     assert!(!draft.content.trim().is_empty());
-    assert!(!draft
-        .continuity_notes
-        .iter()
-        .any(|note| note.to_ascii_lowercase().contains("fallback")));
+    assert!(
+        !draft
+            .continuity_notes
+            .iter()
+            .any(|note| note.to_ascii_lowercase().contains("fallback"))
+    );
 
     let report = chapters.review_chapter(&result.novel.id, 1).await.unwrap();
     assert!(report.passed);
@@ -474,14 +476,16 @@ async fn local_smoke_provider_drives_workflows_without_fallback() {
         .await
         .unwrap();
     assert!(!runs.is_empty());
-    assert!(runs
-        .iter()
-        .all(|run| run.novel_id.as_ref() == Some(&result.novel.id)));
+    assert!(
+        runs.iter()
+            .all(|run| run.novel_id.as_ref() == Some(&result.novel.id))
+    );
     assert!(runs.iter().any(|run| run.role == "market"));
     assert!(runs.iter().any(|run| run.role == "reviewer"));
-    assert!(runs
-        .iter()
-        .any(|run| run.structured.get("_engineering").is_some()));
+    assert!(
+        runs.iter()
+            .any(|run| run.structured.get("_engineering").is_some())
+    );
 
     let export_path = std::env::temp_dir().join(format!("novel-agent-{}.md", Uuid::new_v4()));
     let exported = chapters
@@ -492,6 +496,79 @@ async fn local_smoke_provider_drives_workflows_without_fallback() {
 
     let _ = std::fs::remove_file(db_path);
     let _ = std::fs::remove_file(export_path);
+}
+
+#[tokio::test]
+async fn write_chapter_resume_reuses_persisted_continuity_and_style() {
+    let db_path = std::env::temp_dir().join(format!("novel-agent-{}.db", Uuid::new_v4()));
+    let database_url = format!(
+        "sqlite://{}",
+        db_path.display().to_string().replace('\\', "/")
+    );
+    let storage = SqliteStorage::connect(&database_url).await.unwrap();
+    storage.migrate().await.unwrap();
+    let model: ModelHandle = Arc::new(SmokeModelClient::new("smoke"));
+
+    let creation = NovelCreationWorkflow::new(&storage, model.clone());
+    let result = creation
+        .create_from_idea_with_outline_batch_size(
+            "都市重生商业文，主角回到十年前，从外卖站开始逆袭",
+            TargetPlatform::Fanqie,
+            2,
+            2,
+        )
+        .await
+        .unwrap();
+
+    let chapters = ChapterGenerationWorkflow::new(&storage, model);
+    let first = chapters.write_chapter(&result.novel.id, 1).await.unwrap();
+    let second = chapters.write_chapter(&result.novel.id, 1).await.unwrap();
+    assert_eq!(second.version, first.version + 1);
+
+    let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+    let writer_runs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_runs WHERE role = 'writer' AND task = 'generate_chapter'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(writer_runs, 1);
+
+    let continuity_runs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_runs WHERE role = 'continuity' AND task = 'check_continuity'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(continuity_runs, 1);
+
+    let continuity_reports: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM continuity_reports")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(continuity_reports, 1);
+
+    let style_runs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_runs WHERE role = 'style' AND task = 'polish_style'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(style_runs, 1);
+
+    let style_structured: String = sqlx::query_scalar(
+        "SELECT structured FROM agent_runs WHERE role = 'style' AND task = 'polish_style'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let style_structured: serde_json::Value = serde_json::from_str(&style_structured).unwrap();
+    assert_eq!(
+        style_structured["_workflow"]["chapter_index"].as_u64(),
+        Some(1)
+    );
+
+    let _ = std::fs::remove_file(db_path);
 }
 
 #[tokio::test]
@@ -587,6 +664,81 @@ async fn create_novel_can_merge_batched_initial_outlines() {
 }
 
 #[tokio::test]
+async fn resume_create_novel_reuses_completed_agent_runs_without_duplicate_characters() {
+    let db_path = std::env::temp_dir().join(format!("novel-agent-{}.db", Uuid::new_v4()));
+    let database_url = format!(
+        "sqlite://{}",
+        db_path.display().to_string().replace('\\', "/")
+    );
+    let storage = SqliteStorage::connect(&database_url).await.unwrap();
+    storage.migrate().await.unwrap();
+    let model: ModelHandle = Arc::new(SmokeModelClient::new("smoke"));
+    let idea = "都市重生商业文，主角回到十年前，从外卖站开始逆袭";
+
+    let creation = NovelCreationWorkflow::new(&storage, model);
+    let result = creation
+        .create_from_idea_with_outline_batch_size(idea, TargetPlatform::Fanqie, 2, 2)
+        .await
+        .unwrap();
+    assert_eq!(result.outlines.len(), 2);
+
+    let initial_character_count = storage
+        .characters()
+        .list_by_novel(&result.novel.id)
+        .await
+        .unwrap()
+        .len();
+    assert!(initial_character_count > 0);
+
+    let resumed = creation
+        .resume_from_idea_with_outline_batch_size(&result.novel.id, idea, 4, 2)
+        .await
+        .unwrap();
+    assert!(!resumed.used_fallback);
+    assert_eq!(
+        resumed
+            .outlines
+            .iter()
+            .map(|outline| outline.chapter_index)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3, 4]
+    );
+
+    let character_count = storage
+        .characters()
+        .list_by_novel(&result.novel.id)
+        .await
+        .unwrap()
+        .len();
+    assert_eq!(character_count, initial_character_count);
+
+    let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+    let saved_chapters: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapters WHERE novel_id = ?")
+            .bind(result.novel.id.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(saved_chapters, 4);
+
+    for (role, expected) in [
+        ("market", 1_i64),
+        ("plot", 2_i64),
+        ("character", 1_i64),
+        ("worldbuilding", 1_i64),
+    ] {
+        let runs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_runs WHERE role = ?")
+            .bind(role)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(runs, expected, "{role} AgentRun count");
+    }
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[tokio::test]
 async fn local_smoke_provider_supports_streamed_completion_chunks() {
     let client = SmokeModelClient::new("smoke");
     let response = client
@@ -644,17 +796,21 @@ async fn smoke_flow_falls_back_when_model_output_is_invalid() {
     let draft = chapters.write_chapter(&result.novel.id, 1).await.unwrap();
     assert!(!draft.content.trim().is_empty());
     assert!(!draft.new_facts.is_empty());
-    assert!(draft
-        .continuity_notes
-        .iter()
-        .any(|note| note.contains("fallback")));
+    assert!(
+        draft
+            .continuity_notes
+            .iter()
+            .any(|note| note.contains("fallback"))
+    );
 
     let report = chapters.review_chapter(&result.novel.id, 1).await.unwrap();
     assert!(report.total_score >= 75);
-    assert!(report
-        .suggestions
-        .iter()
-        .any(|suggestion| suggestion.contains("fallback")));
+    assert!(
+        report
+            .suggestions
+            .iter()
+            .any(|suggestion| suggestion.contains("fallback"))
+    );
 
     let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
     let parse_errors: i64 =
@@ -671,10 +827,12 @@ async fn smoke_flow_falls_back_when_model_output_is_invalid() {
     let engineering = structured
         .get("_engineering")
         .expect("agent run should include engineering metadata");
-    assert!(engineering
-        .get("duration_ms")
-        .and_then(serde_json::Value::as_u64)
-        .is_some());
+    assert!(
+        engineering
+            .get("duration_ms")
+            .and_then(serde_json::Value::as_u64)
+            .is_some()
+    );
     assert!(engineering.get("token_usage").is_some());
 
     let export_path = std::env::temp_dir().join(format!("novel-agent-{}.md", Uuid::new_v4()));
@@ -708,8 +866,7 @@ async fn valid_json_model_outputs_match_fixture_expected_checks() {
         FixtureSpec {
             kind: FixtureKind::Romance,
             path: "examples/romance_comeback.md",
-            idea:
-                "现代女性向逆袭复仇，女主被未婚夫和闺蜜联手夺走公司后，回到签署股权转让协议前一天。",
+            idea: "现代女性向逆袭复仇，女主被未婚夫和闺蜜联手夺走公司后，回到签署股权转让协议前一天。",
             platform: TargetPlatform::Fanqie,
             expected_title: "签约前夜",
         },
@@ -804,10 +961,12 @@ async fn assert_fixture_output_matches_expected_checks(spec: FixtureSpec) {
     );
     assert_contains_all(&draft.content, &checks["writer"]["must_include"]);
     assert_contains_none(&draft.content, &checks["writer"]["forbidden"]);
-    assert!(!draft
-        .continuity_notes
-        .iter()
-        .any(|note| note.contains("fallback")));
+    assert!(
+        !draft
+            .continuity_notes
+            .iter()
+            .any(|note| note.contains("fallback"))
+    );
     let continuity_report = storage
         .continuity_reports()
         .latest_for_chapter(&draft.chapter_id)
@@ -819,10 +978,12 @@ async fn assert_fixture_output_matches_expected_checks(spec: FixtureSpec) {
         &continuity_report,
         &checks["continuity"]["must_track_facts"],
     );
-    assert!(!continuity_report["character_state_updates"]
-        .as_array()
-        .unwrap_or(&vec![])
-        .is_empty());
+    assert!(
+        !continuity_report["character_state_updates"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .is_empty()
+    );
     let high_severity_count = continuity_report["issues"]
         .as_array()
         .unwrap_or(&vec![])
@@ -949,20 +1110,24 @@ async fn low_score_review_can_rewrite_and_record_versions() {
             .unwrap(),
         vec![1, 2]
     );
-    assert!(storage
-        .chapter_versions()
-        .content_for_version(&rewritten.chapter_id, 1)
-        .await
-        .unwrap()
-        .unwrap()
-        .contains("能力代价"));
-    assert!(storage
-        .chapter_versions()
-        .content_for_version(&rewritten.chapter_id, 2)
-        .await
-        .unwrap()
-        .unwrap()
-        .contains("重写后强化目标"));
+    assert!(
+        storage
+            .chapter_versions()
+            .content_for_version(&rewritten.chapter_id, 1)
+            .await
+            .unwrap()
+            .unwrap()
+            .contains("能力代价")
+    );
+    assert!(
+        storage
+            .chapter_versions()
+            .content_for_version(&rewritten.chapter_id, 2)
+            .await
+            .unwrap()
+            .unwrap()
+            .contains("重写后强化目标")
+    );
 
     let final_chapter = storage
         .chapters()
@@ -999,13 +1164,15 @@ async fn low_score_review_can_rewrite_and_record_versions() {
             .unwrap(),
         vec![1, 2, 3]
     );
-    assert!(storage
-        .chapter_versions()
-        .content_for_version(&manual.chapter_id, 3)
-        .await
-        .unwrap()
-        .unwrap()
-        .contains("人工编辑新增"));
+    assert!(
+        storage
+            .chapter_versions()
+            .content_for_version(&manual.chapter_id, 3)
+            .await
+            .unwrap()
+            .unwrap()
+            .contains("人工编辑新增")
+    );
 
     let edited_chapter = storage
         .chapters()
@@ -1074,6 +1241,52 @@ fn examples_expose_expected_checks_json() {
         assert_non_empty_array(&checks["style"]["must_preserve"]);
         assert_non_empty_array(&checks["style"]["must_improve"]);
         assert_non_empty_array(&checks["style"]["forbidden"]);
+    }
+}
+
+#[test]
+fn eval_log_records_include_prompt_bundle_and_run_summary() {
+    let content = std::fs::read_to_string("docs/EVAL_LOG.md").unwrap();
+    let records = content
+        .split("\n## ")
+        .filter(|section| section.starts_with("2026-"))
+        .collect::<Vec<_>>();
+    assert!(!records.is_empty(), "expected at least one eval log record");
+
+    for record in records {
+        let title = record.lines().next().unwrap_or("<unknown>");
+        assert!(
+            record.contains("- prompt_bundle："),
+            "eval record `{title}` must include prompt_bundle"
+        );
+        assert!(
+            record.contains("- AgentRun summary："),
+            "eval record `{title}` must include AgentRun summary"
+        );
+        assert!(
+            record.contains("总分："),
+            "eval record `{title}` must include human total score"
+        );
+    }
+}
+
+#[test]
+fn failure_cases_document_covers_known_failure_types() {
+    let content = std::fs::read_to_string("docs/FAILURE_CASES.md").unwrap();
+    for required in [
+        "quality-urban-deepseek-001",
+        "parse-deepseek-plot-001",
+        "provider-openai-xhigh-001",
+        "eval-metadata-001",
+        "`quality_regression`",
+        "`parse_error`",
+        "`provider_error`",
+        "`eval_process`",
+    ] {
+        assert!(
+            content.contains(required),
+            "failure cases document should contain {required}"
+        );
     }
 }
 
@@ -1338,8 +1551,8 @@ fn fixture_template(kind: FixtureKind) -> FixtureTemplate {
             first_three_chapters_goal: "避开事故，取得团队信任，发现本地试点机会",
             chapter_title: "第一章 暴雨回站",
             plot_goal: "重生后立刻处理外卖站危机，证明主角主动目标",
-            plot_conflict: "外卖站危机与站点责任压到林舟身上",
-            key_events: &["重生", "外卖站危机", "避开事故"],
+            plot_conflict: "外卖站危机与站点责任压到林舟身上，站长甩锅和陈岳提前截胡形成外部阻力",
+            key_events: &["重生", "外卖站危机", "避开事故", "外部阻力"],
             main_conflict: "林舟利用未来经验抓住本地生活行业节点，但资金和人脉约束不断放大风险",
             protagonist_goal: "从外卖站起步，建立自己的本地生活业务主动权",
             antagonistic_force: "周启明的甩锅和陈岳的资本包装",
@@ -1348,14 +1561,20 @@ fn fixture_template(kind: FixtureKind) -> FixtureTemplate {
             world_overview: "外卖站规则、本地生活行业节点、资金和人脉约束共同限制主角的商业选择。",
             world_name: "本地生活创业线",
             world_levels: &["外卖站", "片区调度", "社区团购", "本地生活平台"],
-            world_rules: &["外卖站规则必须影响调度和责任划分", "本地生活行业节点只能通过具体行动兑现"],
-            world_costs: &["资金和人脉约束会限制扩张速度", "未来信息不能直接替代执行成本"],
+            world_rules: &[
+                "外卖站规则必须影响调度和责任划分",
+                "本地生活行业节点只能通过具体行动兑现",
+            ],
+            world_costs: &[
+                "资金和人脉约束会限制扩张速度",
+                "未来信息不能直接替代执行成本",
+            ],
             hard_rules: &["未来信息不能无代价碾压", "商业决策必须受资源限制"],
             seed_facts: &[
                 ("林舟", "掌握", "林舟掌握未来行业节点", 5),
                 ("外卖站", "存在", "外卖站存在即时危机", 5),
             ],
-            body_paragraph: "暴雨或配送压力把外卖站堵成一团，林舟醒来就看见站长要把站点责任推到他身上。重生没有给他直接胜利，他用主角主动决策重排骑手路线，先避开事故，再让监控和签收记录证明责任归属。商业决策逻辑来自未来经验，也受资金和人脉约束限制；主角主动性体现在他当场拉许蔓核对本地生活行业节点。章尾钩子是陈岳提前注意到这套调度方案，关键人物关系变化随之出现。\n",
+            body_paragraph: "暴雨或配送压力把外卖站堵成一团，林舟醒来就看见站长要把站点责任推到他身上，站长甩锅和陈岳提前截胡形成外部阻力。重生没有给他直接胜利，他用主角主动决策重排骑手路线，先避开事故，再让监控和签收记录证明责任归属。商业决策逻辑来自未来经验，也受资金和人脉约束限制；他如果判断错一条路线，就要背下赔偿和被开除的失败代价。主角主动性体现在他当场拉许蔓核对本地生活行业节点。章尾钩子是陈岳提前注意到这套调度方案，并抢先联系片区商家，下一步压力变成林舟必须在天亮前拿到第一份真实订单。\n",
             summary: "林舟重生回外卖站暴雨夜，主动调整调度避开事故。",
             writer_key_events: &["重生", "暴雨调度", "避开事故"],
             continuity_facts: &[
@@ -1388,8 +1607,15 @@ fn fixture_template(kind: FixtureKind) -> FixtureTemplate {
             world_overview: "公司股权结构、证据链来源、舆论和资金压力决定复仇节奏。",
             world_name: "股权复仇线",
             world_levels: &["协议前夜", "财务异常", "签约现场", "资金方露面"],
-            world_rules: &["公司股权结构必须清晰", "证据链来源必须能被追溯", "舆论和资金压力会反过来影响谈判"],
-            world_costs: &["股权和资金操作不能随意跳步", "每次情绪反击都要消耗证据或信任筹码"],
+            world_rules: &[
+                "公司股权结构必须清晰",
+                "证据链来源必须能被追溯",
+                "舆论和资金压力会反过来影响谈判",
+            ],
+            world_costs: &[
+                "股权和资金操作不能随意跳步",
+                "每次情绪反击都要消耗证据或信任筹码",
+            ],
             hard_rules: &["复仇必须依赖证据链", "股权和资金操作不能随意跳步"],
             seed_facts: &[
                 ("姜晚", "回到", "姜晚回到签约前一天", 5),

@@ -1,16 +1,16 @@
 use std::path::PathBuf;
 
 use chrono::Utc;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::agent_runner::run_prompt_agent;
-use crate::agents::{AgentRole, AgentTask, ModelHandle};
+use crate::agents::{AgentOutput, AgentRole, AgentTask, ModelHandle};
 use crate::domain::{
     Chapter, ChapterDraft, ChapterStatus, FactTriple, Foreshadowing, NovelId, ReviewIssue,
     ReviewReport, ReviewReportId, ReviewScores, RewriteDecision,
 };
 use crate::error::WorkflowError;
-use crate::storage::SqliteStorage;
+use crate::storage::{AgentRunRecord, AgentRunStatus, SqliteStorage};
 
 pub struct ChapterGenerationWorkflow<'a> {
     storage: &'a SqliteStorage,
@@ -60,31 +60,74 @@ impl<'a> ChapterGenerationWorkflow<'a> {
         let relevant_facts = self.storage.facts().list_by_novel(novel_id, 20).await?;
         let characters = self.storage.characters().list_by_novel(novel_id).await?;
         let recent_summaries = recent_summaries(self.storage, novel_id, chapter_index).await?;
-        let output = run_prompt_agent(
-            self.storage,
-            self.model.clone(),
-            Some(novel_id),
+        let previous_runs = self
+            .storage
+            .agent_runs()
+            .list_recent(Some(novel_id), 120)
+            .await?;
+        let previous_writer_output = previous_chapter_agent_output(
+            &previous_runs,
             AgentRole::Writer,
             AgentTask::GenerateChapter,
-            CHAPTER_WRITER_PROMPT,
-            json!({
-                "novel_bible": bible,
-                "target_platform": novel.target_platform.as_str(),
-                "platform_profile": platform_profile,
-                "chapter_outline": chapter.outline.clone(),
-                "characters": characters,
-                "world_setting": self.storage.world_settings().find(novel_id).await?,
-                "recent_summaries": recent_summaries,
-                "relevant_facts": relevant_facts,
-                "constraints": [],
-                "target_word_count": 2500
-            }),
-        )
-        .await?;
+            chapter_index,
+        );
+        let reused_writer_output = previous_writer_output.is_some();
+        let previous_style_output = if reused_writer_output {
+            previous_chapter_agent_output(
+                &previous_runs,
+                AgentRole::Style,
+                AgentTask::PolishStyle,
+                chapter_index,
+            )
+        } else {
+            None
+        };
+        let output = if let Some(output) = previous_writer_output {
+            output
+        } else {
+            run_prompt_agent(
+                self.storage,
+                self.model.clone(),
+                Some(novel_id),
+                AgentRole::Writer,
+                AgentTask::GenerateChapter,
+                CHAPTER_WRITER_PROMPT,
+                json!({
+                    "novel_bible": bible,
+                    "target_platform": novel.target_platform.as_str(),
+                    "platform_profile": platform_profile,
+                    "chapter_outline": chapter.outline.clone(),
+                    "characters": characters,
+                    "world_setting": self.storage.world_settings().find(novel_id).await?,
+                    "recent_summaries": recent_summaries,
+                    "relevant_facts": relevant_facts,
+                    "constraints": [],
+                    "target_word_count": 2500
+                }),
+            )
+            .await?
+        };
         let mut draft = draft_from_agent_output(&chapter, &output.structured)
             .unwrap_or_else(|| fallback_chapter_draft(&novel.title, &chapter));
-        let continuity_report = self.run_continuity(novel_id, &draft, chapter_index).await?;
-        draft = self.run_style(novel_id, draft, &continuity_report).await?;
+        let continuity_report = if reused_writer_output {
+            if let Some(report) = self
+                .storage
+                .continuity_reports()
+                .latest_for_chapter(&chapter.id)
+                .await?
+            {
+                report
+            } else {
+                self.run_continuity(novel_id, &draft, chapter_index).await?
+            }
+        } else {
+            self.run_continuity(novel_id, &draft, chapter_index).await?
+        };
+        draft = if let Some(output) = previous_style_output {
+            apply_style_output(draft, &output.structured)
+        } else {
+            self.run_style(novel_id, draft, &continuity_report).await?
+        };
 
         self.storage.chapters().save_draft(&draft).await?;
         self.storage
@@ -387,7 +430,7 @@ impl<'a> ChapterGenerationWorkflow<'a> {
     async fn run_style(
         &self,
         novel_id: &NovelId,
-        mut draft: ChapterDraft,
+        draft: ChapterDraft,
         continuity_report: &Value,
     ) -> Result<ChapterDraft, WorkflowError> {
         let novel = self
@@ -414,26 +457,7 @@ impl<'a> ChapterGenerationWorkflow<'a> {
         )
         .await?;
 
-        if let Some(styled) = output.structured.get("styled_chapter") {
-            if let Some(title) = string_field(styled, "title") {
-                draft.title = title;
-            }
-            if let Some(content) = string_field(styled, "content") {
-                draft.word_count = count_words(&content);
-                draft.content = content;
-            }
-            if let Some(summary) = string_field(styled, "summary") {
-                draft.summary = summary;
-            }
-            let style_notes = string_vec(styled, "style_notes");
-            if !style_notes.is_empty() {
-                draft
-                    .continuity_notes
-                    .push(format!("Style Agent: {}", style_notes.join("；")));
-            }
-        }
-
-        Ok(draft)
+        Ok(apply_style_output(draft, &output.structured))
     }
 }
 
@@ -455,6 +479,76 @@ async fn recent_summaries(
         .take(10)
         .filter_map(|chapter| chapter.summary)
         .collect())
+}
+
+fn previous_chapter_agent_output(
+    runs: &[AgentRunRecord],
+    role: AgentRole,
+    task: AgentTask,
+    chapter_index: u32,
+) -> Option<AgentOutput> {
+    let run = runs.iter().find(|run| {
+        run.role == role.as_str()
+            && run.task == task.as_str()
+            && run.status() == AgentRunStatus::Ok
+            && run_matches_chapter(run, chapter_index)
+    })?;
+
+    Some(AgentOutput {
+        role,
+        structured: run.structured.clone(),
+        raw_text: run.raw_text.clone(),
+        parse_error: None,
+        raw_notes: run.raw_notes.clone(),
+        attempt: run.attempt().unwrap_or(1) as u32,
+        will_fallback: false,
+        duration_ms: run.duration_ms(),
+        token_usage: None,
+        artifacts: vec![],
+    })
+}
+
+fn run_matches_chapter(run: &AgentRunRecord, chapter_index: u32) -> bool {
+    run.structured
+        .get("_workflow")
+        .and_then(|value| value.get("chapter_index"))
+        .or_else(|| {
+            run.structured
+                .get("chapter_draft")
+                .or_else(|| run.structured.get("styled_chapter"))
+                .and_then(|value| value.get("chapter_index"))
+        })
+        .and_then(Value::as_u64)
+        .map(|value| value == u64::from(chapter_index))
+        .unwrap_or_else(|| {
+            run.structured
+                .get("chapter_draft")
+                .and_then(|value| value.get("content"))
+                .is_some()
+        })
+}
+
+fn apply_style_output(mut draft: ChapterDraft, structured: &Value) -> ChapterDraft {
+    if let Some(styled) = structured.get("styled_chapter") {
+        if let Some(title) = string_field(styled, "title") {
+            draft.title = title;
+        }
+        if let Some(content) = string_field(styled, "content") {
+            draft.word_count = count_words(&content);
+            draft.content = content;
+        }
+        if let Some(summary) = string_field(styled, "summary") {
+            draft.summary = summary;
+        }
+        let style_notes = string_vec(styled, "style_notes");
+        if !style_notes.is_empty() {
+            draft
+                .continuity_notes
+                .push(format!("Style Agent: {}", style_notes.join("；")));
+        }
+    }
+
+    draft
 }
 
 fn draft_from_agent_output(chapter: &Chapter, structured: &Value) -> Option<ChapterDraft> {

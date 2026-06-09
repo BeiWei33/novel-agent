@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::agent_runner::run_prompt_agent;
 use crate::agents::{AgentOutput, AgentRole, AgentTask, ModelHandle};
@@ -201,6 +201,17 @@ impl<'a> NovelCreationWorkflow<'a> {
         let provisional_characters =
             characters_from_agent_output(&novel, &character_output.structured)
                 .unwrap_or_else(|| draft_characters(&novel, idea));
+        let stored_characters = if resume_novel_id.is_some() {
+            self.storage.characters().list_by_novel(&novel.id).await?
+        } else {
+            Vec::new()
+        };
+        let should_insert_characters = stored_characters.is_empty();
+        let characters = if stored_characters.is_empty() {
+            provisional_characters
+        } else {
+            stored_characters
+        };
         let worldbuilding_output = if let Some(output) = previous_agent_output(
             &previous_runs,
             AgentRole::Worldbuilding,
@@ -219,7 +230,7 @@ impl<'a> NovelCreationWorkflow<'a> {
                 "idea": idea,
                 "market_analysis": market_output.structured.get("market_analysis").cloned().unwrap_or_else(|| json!({})),
                 "plot_plan": plot_generation.structured.get("plot_plan").cloned().unwrap_or_else(|| json!({})),
-                "characters": worldbuilding_character_context(&provisional_characters),
+                "characters": worldbuilding_character_context(&characters),
                 "target_platform": platform.as_str(),
                 "scope": {
                     "focus_chapters": target_chapters,
@@ -246,14 +257,15 @@ impl<'a> NovelCreationWorkflow<'a> {
             &plot_generation.structured,
         )
         .unwrap_or_else(|| draft_bible(&novel, idea));
-        let characters = provisional_characters;
         let outlines = plot_generation.outlines;
 
         self.storage.novels().insert(&novel).await?;
         self.storage.novels().save_bible(&bible).await?;
 
-        for character in &characters {
-            self.storage.characters().insert(character).await?;
+        if should_insert_characters {
+            for character in &characters {
+                self.storage.characters().insert(character).await?;
+            }
         }
 
         if let Some(world_setting) = worldbuilding_output.structured.get("world_setting") {

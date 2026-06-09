@@ -78,3 +78,6 @@
 - 高严重度问题必须说明为什么会破坏读者信任。
 - 新事实要尽量拆成短句，方便存入 facts 表。
 - 不要把文风偏好当成连续性问题。
+- `issues` 按 `high`、`medium`、`low` 排序；每条都必须给出 `location` 和可执行 `suggestion`。
+- `new_facts.importance` 使用 1 到 5：1 为背景信息，3 为后续可能引用的常规事实，5 为主线规则、人物关键状态或必须追踪的伏笔事实。
+- `foreshadowing_updates.status = contradicted` 只能用于伏笔被当前正文破坏的情况，并必须在 `note` 中说明修复方式。

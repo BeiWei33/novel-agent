@@ -24,6 +24,7 @@
 - 能使用本地 `smoke` provider 做稳定离线验收。
 - 能配置 `openai` / `deepseek` 真实 provider，并具备 key preflight 和 fallback 误通过防护。
 - 能通过 `OPENAI_BASE_URL` 接入本地 OpenAI-compatible 代理；已验证 `gpt-5.5 + reasoning_effort=xhigh` 最小真实链路。
+- 能通过 `new --resume-novel-id` 和 `mvp_demo.ps1 -WorkDir/-ResumeNovelId` 恢复真实模型验收中的已落库检查点。
 
 ## 2. 已验证命令
 
@@ -132,6 +133,14 @@ $env:OPENAI_API_KEY = "<cliproxy bearer token>"
 powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 2 -OutlineChapters 2 -NewOutlineBatchSize 1 -OutlineBatchSize 1 -SkipOutline -SkipRewrite -StepRetries 0
 ```
 
+本地 OpenAI-compatible 检查点续跑：
+
+```powershell
+$env:OPENAI_BASE_URL = "http://127.0.0.1:8317/v1"
+$env:OPENAI_API_KEY = "<cliproxy bearer token>"
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 6 -OutlineChapters 6 -NewOutlineBatchSize 3 -OutlineBatchSize 3 -SkipOutline -SkipRewrite -StepRetries 0 -CheckpointResumes 6 -WorkDir <work_dir> -ResumeNovelId <novel_id>
+```
+
 DeepSeek 快速真实链路：
 
 ```powershell
@@ -150,8 +159,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepse
 - 完整验收中，`edit` 后 `versions --from 2 --to 3` 能看到人工编辑版本对比。
 - 完整验收默认使用 `-NewOutlineBatchSize 5` 和 `-OutlineBatchSize 5` 分批生成大纲。
 - 快速真实链路可跳过重复 `outline` 和 `rewrite`，用于先验证真实 provider 能稳定返回合法 AgentOutput。
+- 若本地 OpenAI-compatible 代理在真实模型调用中出现子进程级中断，可设置 `-CheckpointResumes` 让脚本在同次运行中复用已成功的 AgentRun 继续；章节写作续跑会复用同章 Writer / Continuity / Style 检查点，也可保留脚本输出的 `work_dir` 和 `resume_novel_id`，用 `-WorkDir` / `-ResumeNovelId` 手动续跑。
 
-当前环境说明：DeepSeek key 已可见；完整 DeepSeek demo 已通过，`agent_run_summary total=23 ok=23 fallback=0 parse_error=0`。本地 cliproxyapi 已验证 `/v1/models`、`chat/completions`、`gpt-5.5 + reasoning_effort=xhigh`，并用 novel-agent 2 章快速无重试链路跑通，`agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=799126`。6 章链路已完成 `new -> write -> review -> export -> runs` 分段验证，最终 `agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=700385`、`export_size=19347`；但一次性 demo 脚本在首次 review 调用处出现过 provider 子进程 `exit code -1`，因此 6 章严格一次性验收仍需继续压测。
+当前环境说明：DeepSeek key 已可见；完整 DeepSeek demo 已通过，`agent_run_summary total=23 ok=23 fallback=0 parse_error=0`。本地 cliproxyapi 已验证 `/v1/models`、`chat/completions`、`gpt-5.5 + reasoning_effort=xhigh`，并用 novel-agent 2 章快速无重试链路跑通，`agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=799126`。6 章链路已先后完成手动检查点续跑和同次检查点续跑验证；最新从头执行 `-CheckpointResumes 6` 已完成 `new -> write -> review -> export -> runs`，最终 `agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=639102`、`export_size=20616`。历史上本地 provider 曾出现子进程 `exit code -1`，后续真实压测仍建议保留 `work_dir` / `resume_novel_id` 以便恢复。
 
 ## 5. 已知边界
 
@@ -164,6 +174,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepse
 
 ## 6. 下一步建议
 
-- 对 `gpt-5.5 + reasoning_effort=xhigh` 继续执行 6 章一次性脚本或完整默认链路压测，确认 provider 子进程中断是否仍会复现。
+- 对 `gpt-5.5 + reasoning_effort=xhigh` 继续执行完整默认链路压测，并用 `-CheckpointResumes` / `-WorkDir` / `-ResumeNovelId` 保留续跑证据，观察 provider 子进程中断是否仍会复现。
 - 将真实模型输出失败样例整理进 Prompt/Schema 回归。
 - 做一次提交前文件清单复核，确认本轮 A/B 改动均应纳入同一提交或拆分提交。

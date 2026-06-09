@@ -74,6 +74,8 @@ MVP 阶段冻结以下结构名和字段语义：
 
 `platform_profile` 的权威持久化位置是 `NovelBible.platform_profile`。Market Agent 负责生成初稿，Plot/Writer/Reviewer 从 `NovelBible` 读取。
 
+`RewriteInstruction.rewrite_type` 当前业务值为 `none`、`partial`、`full`、`opening`、`ending`、`style`。前端必须对未知字符串降级展示为自定义返工，不能把它当作接口错误。
+
 ## 4. 工作流顺序
 
 新书创建：
@@ -209,11 +211,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -UseRealModel
 powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 2 -OutlineChapters 2 -NewOutlineBatchSize 1 -OutlineBatchSize 1 -SkipOutline -SkipRewrite -StepRetries 0
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 6 -OutlineChapters 6 -NewOutlineBatchSize 3 -OutlineBatchSize 3 -SkipOutline -SkipRewrite -StepRetries 0 -CheckpointResumes 6
 powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepseek -UseRealModel
 powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepseek -UseRealModel -NewChapters 6 -SkipOutline -SkipRewrite
 ```
 
-真实模型验收要求环境中存在对应 provider 的 key：OpenAI 使用 `OPENAI_API_KEY`，OpenAI-compatible 代理可额外设置 `OPENAI_BASE_URL`，DeepSeek 使用 `DEEPSEEK_API_KEY`。`-UseRealModel` 模式会拒绝在缺少 key 时继续运行，并且一旦 AgentRun 出现 fallback 或 parse error，本次真实模型验收应视为失败。完整 demo 默认按 5 章一批调用 Plot Agent，并用 `runs --limit 80 --summary --fail-on-bad-status` 检查本次链路主要 AgentRun；DeepSeek 可先用 `-NewChapters 6 -SkipOutline -SkipRewrite` 验证短链路，OpenAI-compatible `gpt-5.5 + xhigh` 可先用 2 章无重试快速链路验证。
+真实模型验收要求环境中存在对应 provider 的 key：OpenAI 使用 `OPENAI_API_KEY`，OpenAI-compatible 代理可额外设置 `OPENAI_BASE_URL`，DeepSeek 使用 `DEEPSEEK_API_KEY`。`-UseRealModel` 模式会拒绝在缺少 key 时继续运行，并且一旦 AgentRun 出现 fallback 或 parse error，本次真实模型验收应视为失败。完整 demo 默认按 5 章一批调用 Plot Agent，并用 `runs --limit 80 --summary --fail-on-bad-status` 检查本次链路主要 AgentRun；DeepSeek 可先用 `-NewChapters 6 -SkipOutline -SkipRewrite` 验证短链路，OpenAI-compatible `gpt-5.5 + xhigh` 可先用 2 章无重试快速链路验证，6 章链路建议带 `-CheckpointResumes 6`。若本地代理发生子进程级中断，可用 `-CheckpointResumes` 同次续跑，或用同一 `-WorkDir` 和 `-ResumeNovelId` 手动续跑，续跑必须继续满足 `runs --fail-on-bad-status`。
 
 ## 7. 当前验收状态
 
@@ -236,9 +239,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepse
 - `edit` CLI 已可从本地文件保存人工编辑稿为新版本，并可继续用 `versions` 对比、用 `review` 复审。
 - `scripts/mvp_demo.ps1 -UseRealModel` 已具备 key preflight 和 `runs --fail-on-bad-status` 坏状态检测。
 - CLI `new` 支持 `--chapters` 和 `--outline-batch-size`，`outline` 支持 `--batch-size`，默认 5 章一批，用于降低 Plot Agent 长 JSON 截断风险。
+- CLI `new` 支持 `--resume-novel-id` 复用已成功的新书 AgentRun；章节写作续跑会复用同章 Writer / Continuity / Style 检查点；`scripts/mvp_demo.ps1` 支持 `-WorkDir` / `-ResumeNovelId` 复用临时库恢复真实模型验收。
 - Plot Agent 分批输出已支持区间过滤、绝对章号矫正和缺章 fallback，默认 30 章会拆为多次短输出。
 - DeepSeek 短链路 `-NewChapters 6 -SkipOutline -SkipRewrite` 已完成真实 API 验证，`agent_runs.parse_error = 0`。
 - DeepSeek 完整真实链路已通过，`agent_run_summary total=23 ok=23 fallback=0 parse_error=0`。
 - 本地 cliproxyapi 已验证 `gpt-5.5 + reasoning_effort=xhigh` 2 章快速无重试链路，`agent_run_summary total=9 ok=9 fallback=0 parse_error=0`。
-- 本地 cliproxyapi 的 6 章链路已分段验证到 `new -> write -> review -> export -> runs`，最终 `agent_run_summary total=9 ok=9 fallback=0 parse_error=0`；一次性 demo 脚本仍观察到 provider 子进程 `exit code -1`，需继续复跑确认稳定性。
+- 本地 cliproxyapi 的 6 章链路已通过检查点续跑验证，最新从头执行 `-CheckpointResumes 6` 完成 `agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=639102`、`export_size=20616`；历史上仍观察过 provider 子进程 `exit code -1`，后续压测需保留续跑信息。
 - CLI `new -> outline -> write -> review -> rewrite -> versions -> edit -> versions -> export -> runs` 闭环。

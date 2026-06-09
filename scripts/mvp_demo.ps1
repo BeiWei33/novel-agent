@@ -13,6 +13,7 @@ param(
     [uint32]$OutlineBatchSize = 5,
     [uint32]$RunsLimit = 80,
     [uint32]$StepRetries = 1,
+    [uint32]$CheckpointResumes = 0,
     [string]$WorkDir = "",
     [string]$ResumeNovelId = "",
     [switch]$SkipOutline,
@@ -64,6 +65,28 @@ function Resolve-ProviderKeyName {
     }
 }
 
+function Resolve-CliPath {
+    & $Cargo build --quiet
+    if ($LASTEXITCODE -ne 0) {
+        throw "cargo build failed with exit code $LASTEXITCODE."
+    }
+
+    if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+        $targetDir = Join-Path (Get-Location) "target"
+    } elseif ([System.IO.Path]::IsPathRooted($env:CARGO_TARGET_DIR)) {
+        $targetDir = $env:CARGO_TARGET_DIR
+    } else {
+        $targetDir = Join-Path (Get-Location) $env:CARGO_TARGET_DIR
+    }
+
+    $windowsExe = Join-Path $targetDir "debug\novel-agent.exe"
+    if (Test-Path $windowsExe) {
+        return $windowsExe
+    }
+
+    return (Join-Path $targetDir "debug\novel-agent")
+}
+
 function Invoke-DemoStep {
     param(
         [string]$Name,
@@ -80,7 +103,7 @@ function Invoke-DemoStep {
         $previousErrorActionPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            $output = & $Cargo run --quiet -- --config $ConfigPath @CliArgs 2>&1
+            $output = & $CliPath --config $ConfigPath @CliArgs 2>&1
             $exitCode = $LASTEXITCODE
         } finally {
             $ErrorActionPreference = $previousErrorActionPreference
@@ -110,7 +133,7 @@ function Resolve-LatestNovelIdFromRuns {
     $previousErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        $output = & $Cargo run --quiet -- --config $ConfigPath runs --limit "$RunsLimit" --summary 2>&1
+        $output = & $CliPath --config $ConfigPath runs --limit "$RunsLimit" --summary 2>&1
         $exitCode = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $previousErrorActionPreference
@@ -124,6 +147,48 @@ function Resolve-LatestNovelIdFromRuns {
         return $match.Groups[1].Value
     }
     return ""
+}
+
+function Test-ChapterVersionExists {
+    param(
+        [string]$NovelId,
+        [uint32]$Chapter
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & $CliPath --config $ConfigPath versions --novel-id $NovelId --chapter "$Chapter" 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
+        return $false
+    }
+    return (($output -join "`n") -match "版本:")
+}
+
+function Test-AgentRunOk {
+    param(
+        [string]$NovelId,
+        [string]$Role,
+        [string]$Task
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & $CliPath --config $ConfigPath runs --novel-id $NovelId --limit "$RunsLimit" 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
+        return $false
+    }
+    $text = $output -join "`n"
+    return ($text -match "role=$Role task=$Task .*status=ok")
 }
 
 function Invoke-NewStep {
@@ -140,11 +205,52 @@ function Invoke-NewStep {
         }
         Write-Warning "Step 'new' failed; attempting checkpoint resume for novel_id=$candidateNovelId."
         $resumeArgs = $newArgs + @("--resume-novel-id", $candidateNovelId)
-        return Invoke-DemoStep "new resume" $resumeArgs
+        for ($checkpointAttempt = 0; $checkpointAttempt -le $script:EffectiveCheckpointResumes; $checkpointAttempt++) {
+            try {
+                return Invoke-DemoStep "new resume" $resumeArgs
+            } catch {
+                if ($checkpointAttempt -ge $script:EffectiveCheckpointResumes) {
+                    throw
+                }
+                $nextAttempt = $checkpointAttempt + 1
+                Write-Warning "Step 'new resume' failed after writing a checkpoint; continuing from checkpoint ($nextAttempt/$script:EffectiveCheckpointResumes)."
+                Start-Sleep -Seconds 3
+            }
+        }
+    }
+}
+
+function Invoke-CheckpointedStep {
+    param(
+        [string]$Name,
+        [string[]]$CliArgs,
+        [scriptblock]$IsComplete,
+        [scriptblock]$HasCheckpoint
+    )
+
+    for ($checkpointAttempt = 0; $checkpointAttempt -le $script:EffectiveCheckpointResumes; $checkpointAttempt++) {
+        if (& $IsComplete) {
+            Write-Host "=== $Name ==="
+            Write-Host "Skipped $Name step; checkpoint already complete."
+            return
+        }
+
+        try {
+            Invoke-DemoStep $Name $CliArgs | Out-Null
+            return
+        } catch {
+            if ((-not $UseRealModel) -or ($checkpointAttempt -ge $script:EffectiveCheckpointResumes) -or (-not (& $HasCheckpoint))) {
+                throw
+            }
+            $nextAttempt = $checkpointAttempt + 1
+            Write-Warning "Step '$Name' failed after writing a checkpoint; continuing from checkpoint ($nextAttempt/$script:EffectiveCheckpointResumes)."
+            Start-Sleep -Seconds 3
+        }
     }
 }
 
 $Cargo = Resolve-Cargo
+$CliPath = Resolve-CliPath
 $ObservedFallback = $false
 if ([string]::IsNullOrWhiteSpace($Model)) {
     $Model = Resolve-DefaultModel $Provider
@@ -167,11 +273,16 @@ if ($RunsLimit -lt 1) {
 if ($StepRetries -lt 0) {
     throw "StepRetries must be at least 0."
 }
+if ($CheckpointResumes -lt 0) {
+    throw "CheckpointResumes must be at least 0."
+}
 $script:EffectiveStepRetries = if ($UseRealModel) { $StepRetries } else { 0 }
+$script:EffectiveCheckpointResumes = if ($UseRealModel) { $CheckpointResumes } else { 0 }
 if ([string]::IsNullOrWhiteSpace($WorkDir)) {
     $WorkDir = Join-Path $env:TEMP ("novel-agent-mvp-demo-" + [guid]::NewGuid().ToString("N"))
 }
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+Write-Host "work_dir=$WorkDir"
 
 $ConfigPath = Join-Path $WorkDir "novel-agent.toml"
 $DatabasePath = (Join-Path $WorkDir "novel-agent.db").Replace("\", "/")
@@ -217,6 +328,7 @@ if ([string]::IsNullOrWhiteSpace($ResumeNovelId)) {
         throw "Could not parse novel id from new command output."
     }
     $NovelId = $Matches[1]
+    Write-Host "resume_novel_id=$NovelId"
 } else {
     $NovelId = $ResumeNovelId
     Write-Host "=== new ==="
@@ -232,8 +344,12 @@ $writeArgs = @("write", "--novel-id", $NovelId, "--chapter", "$Chapter")
 if ($StreamWrite) {
     $writeArgs += "--stream"
 }
-Invoke-DemoStep "write" $writeArgs | Out-Null
-Invoke-DemoStep "review" @("review", "--novel-id", $NovelId, "--chapter", "$Chapter") | Out-Null
+Invoke-CheckpointedStep "write" $writeArgs `
+    { Test-ChapterVersionExists $NovelId $Chapter } `
+    { (Test-ChapterVersionExists $NovelId $Chapter) -or (Test-AgentRunOk $NovelId "writer" "generate_chapter") -or (Test-AgentRunOk $NovelId "continuity" "check_continuity") -or (Test-AgentRunOk $NovelId "style" "polish_style") }
+Invoke-CheckpointedStep "review" @("review", "--novel-id", $NovelId, "--chapter", "$Chapter") `
+    { Test-AgentRunOk $NovelId "reviewer" "review_chapter" } `
+    { Test-AgentRunOk $NovelId "reviewer" "review_chapter" }
 if ($SkipRewrite) {
     Write-Host "=== rewrite ==="
     Write-Host "Skipped rewrite step."

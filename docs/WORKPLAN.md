@@ -146,26 +146,32 @@ novel-agent serve --config novel-agent.toml
 优先级 P0：
 
 - 稳定 Market / Plot / Character / Writer / Reviewer 输出结构
-- 给每个 Agent 输出增加 UI 可展示摘要字段
-- 优化 `ReviewReport` 的问题列表和修改建议
-- 补充章节返工类型：整章重写、开头重写、结尾重写、语言润色
-- 给 C 提供审稿面板字段说明
-- 准备 3 个 UI demo 小说项目样例
+- 已给每个 Agent 输出梳理 UI 可展示摘要字段，见 `docs/UI_CONTENT_GUIDE.md`
+- 已优化 `ReviewReport` 的问题列表和修改建议输出规则
+- 已补充章节返工类型：整章重写、开头重写、结尾重写、语言润色
+- 已给 C 提供审稿面板字段说明，见 `docs/UI_CONTENT_GUIDE.md`
+- 已准备 3 个 UI demo 小说项目样例来源：`examples/urban_rebirth.md`、`examples/fantasy_upgrade.md`、`examples/romance_comeback.md`
 
 优先级 P1：
 
-- 优化 Continuity Agent 输出
-- 优化 Style Agent 输出
-- 设计伏笔表 UI 字段
-- 设计事实表 UI 字段
-- 增加人工评测表
+- 已优化 Continuity Agent 输出约束
+- 已优化 Style Agent 输出约束
+- 已设计伏笔表 UI 字段，见 `docs/UI_CONTENT_GUIDE.md`
+- 已设计事实表 UI 字段，见 `docs/UI_CONTENT_GUIDE.md`
+- 已增加人工评测表，见 `docs/HUMAN_EVAL.md`
 
 优先级 P2：
 
-- 做不同 provider 的生成效果对比
-- 优化章尾钩子
-- 优化人物行为一致性检查
-- 沉淀平台题材模板
+- 已准备不同 provider 的生成效果对比表和判读规则，见 `docs/HUMAN_EVAL.md`；`gpt-5.5 xhigh` 与 DeepSeek 对照摘要见 `docs/EVAL_LOG.md`
+- 已提供 Prompt 版本记录，见 `docs/PROMPT_CHANGELOG.md`；当前 bundle 为 `b-quality-2026-06-09-r3`
+- 已将评测日志关键元数据纳入 smoke 测试，新增记录必须包含 `prompt_bundle`、AgentRun summary 和人工总分
+- 已提供 Web demo 内容包，见 `docs/WEB_DEMO_CONTENT.md`；主 demo 为 `urban_rebirth_fanqie_demo`
+- 已提供失败样例库，见 `docs/FAILURE_CASES.md`
+- 已优化章尾钩子规则，见 `docs/PLATFORM_TEMPLATES.md`
+- 已优化人物行为一致性检查，见 `docs/PLATFORM_TEMPLATES.md`
+- 已沉淀平台题材模板，见 `docs/PLATFORM_TEMPLATES.md`
+- 已根据 DeepSeek 对照评测补强商业谈判阻力、未来信息场景化和章尾硬压力规则
+- 已把都市重生样例的外部阻力、失败代价和下一步压力写入 `expected_checks`，并纳入 smoke fixture 回归
 
 ### 4.3 交付物
 
@@ -175,6 +181,12 @@ docs/RUBRIC.md
 docs/SCHEMAS.md
 examples/*.md
 docs/UI_CONTENT_GUIDE.md
+docs/HUMAN_EVAL.md
+docs/EVAL_LOG.md
+docs/FAILURE_CASES.md
+docs/PROMPT_CHANGELOG.md
+docs/WEB_DEMO_CONTENT.md
+docs/PLATFORM_TEMPLATES.md
 ```
 
 ## 5. 开发者 C：B 端 Web 创作工作台线

@@ -554,7 +554,7 @@ Worldbuilding Agent 的输出结构保持不变。工程侧为了控制真实模
   "suggestions": ["修改建议"],
   "rewrite_instruction": {
     "needed": false,
-    "rewrite_type": "none | partial | full",
+    "rewrite_type": "none | partial | full | opening | ending | style",
     "priority": "low | medium | high",
     "goals": ["返工目标"],
     "preserve": ["保留内容"],
@@ -571,7 +571,7 @@ Worldbuilding Agent 的输出结构保持不变。工程侧为了控制真实模
 ```json
 {
   "needed": true,
-  "rewrite_type": "partial | full",
+  "rewrite_type": "partial | full | opening | ending | style",
   "priority": "low | medium | high",
   "goals": ["返工目标"],
   "preserve": ["必须保留的内容"],
@@ -579,3 +579,14 @@ Worldbuilding Agent 的输出结构保持不变。工程侧为了控制真实模
   "avoid": ["避免内容"]
 }
 ```
+
+`rewrite_type` 语义：
+
+| 值 | 含义 |
+| --- | --- |
+| `none` | 无需返工 |
+| `partial` | 局部返工，保留主事件 |
+| `full` | 整章重写 |
+| `opening` | 开头重写 |
+| `ending` | 结尾重写 |
+| `style` | 语言润色 |

@@ -70,6 +70,7 @@ pub async fn run_prompt_agent(
         output.attempt = attempt;
         output.will_fallback = output.parse_error.is_some() && attempt == max_attempts;
         output.duration_ms = Some(elapsed_ms(started_at));
+        attach_workflow_context(&mut output.structured, &payload);
         storage.agent_runs().insert(novel_id, task, &output).await?;
 
         if output.parse_error.is_none() {
@@ -85,4 +86,26 @@ pub async fn run_prompt_agent(
 fn elapsed_ms(started_at: Instant) -> u64 {
     let millis = started_at.elapsed().as_millis();
     millis.min(u128::from(u64::MAX)) as u64
+}
+
+fn attach_workflow_context(structured: &mut Value, payload: &Value) {
+    let Some(chapter_draft) = payload.get("chapter_draft").and_then(Value::as_object) else {
+        return;
+    };
+    let Some(chapter_index) = chapter_draft.get("chapter_index").and_then(Value::as_u64) else {
+        return;
+    };
+
+    let mut workflow = serde_json::Map::new();
+    workflow.insert("chapter_index".to_string(), Value::from(chapter_index));
+    if let Some(volume_index) = chapter_draft.get("volume_index").and_then(Value::as_u64) {
+        workflow.insert("volume_index".to_string(), Value::from(volume_index));
+    }
+    if let Some(chapter_id) = chapter_draft.get("chapter_id").and_then(Value::as_str) {
+        workflow.insert("chapter_id".to_string(), Value::from(chapter_id));
+    }
+
+    if let Some(map) = structured.as_object_mut() {
+        map.insert("_workflow".to_string(), Value::Object(workflow));
+    }
 }

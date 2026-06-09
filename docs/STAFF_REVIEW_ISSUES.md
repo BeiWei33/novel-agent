@@ -2100,6 +2100,53 @@ agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 to
 
 - Web 工作台可直接通过 `GET /api/runs` 构建全局运行面板，也可继续通过作品内 runs 接口查看单作品运行记录。
 
+## 53. 开发者 B xhigh 检查点续跑收口记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P1 / C-P0-2：`new --resume-novel-id` 已进入验收口径，可复用同一作品下已成功的 Market / Plot / Character / Worldbuilding AgentRun，避免真实模型中断后从头重跑。
+- B-P1：修正续跑时人物卡重复落库问题；如果作品已有人物卡，续跑会沿用既有人物，不再把同一份 Character 输出重复插入。
+- B-P1：`write_chapter` 在复用 Writer 输出时会优先复用该章已持久化的 Continuity report，避免真实模型恢复时反复重跑 Continuity。
+- B-P1 / C-P0-2：`scripts/mvp_demo.ps1` 会提前输出 `work_dir`，新书成功后输出 `resume_novel_id`，并已将 `-WorkDir` / `-ResumeNovelId` 写入 README、MVP 验收和接口冻结文档；本地 OpenAI-compatible 6 章验收可在 provider 子进程中断后复用临时库继续。
+- B-P1：新增 smoke 回归 `resume_create_novel_reuses_completed_agent_runs_without_duplicate_characters` 和 `write_chapter_resume_reuses_persisted_continuity_report`，覆盖新书续跑不重复人物、章节续跑不重复 Continuity。
+- 真实模型记录：本地 cliproxyapi `gpt-5.5 + reasoning_effort=xhigh` 6 章最新复跑中，一次性 demo 在 `write` 阶段仍出现 provider 子进程 `exit code -1`；用同一 `work_dir` / `resume_novel_id` 续跑后完成 `write -> review -> export -> runs`，最终 `agent_run_summary total=10 ok=10 fallback=0 parse_error=0 duration_ms_total=823868`、`export_size=19962`。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 16 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / facts / write / continuity / review / SSE / jobs(filter + novel_id) / batch-jobs / retry-completed-400 / cancel-completed-400 / export / runs / filtered-runs / global-filtered-runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 6 -OutlineChapters 6 -NewOutlineBatchSize 3 -OutlineBatchSize 3 -SkipOutline -SkipRewrite -StepRetries 0
+write 阶段出现 provider 子进程 exit code -1；已输出 work_dir 和 resume_novel_id
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 6 -OutlineChapters 6 -NewOutlineBatchSize 3 -OutlineBatchSize 3 -SkipOutline -SkipRewrite -StepRetries 0 -WorkDir <work_dir> -ResumeNovelId <resume_novel_id>
+agent_run_summary total=10 ok=10 fallback=0 parse_error=0 duration_ms_total=823868
+export_size=19962
+
+git diff --check
+ok
+```
+
+当前状态：
+
+- B 线真实模型验收已有可恢复路径；下一步应继续复跑 `gpt-5.5 + xhigh` 6 章一次性脚本，判断剩余失败是否完全来自本地 provider 进程稳定性。
+
 ## 54. 开发者 A 第三十八轮处理记录
 
 处理日期：2026-06-09
@@ -2136,3 +2183,349 @@ agent_run_total=21
 当前状态：
 
 - 后端已开放 Web 人工保存章节入口；C 侧真实 API 客户端可将 `saveChapterContent` 对接到 `PUT /api/novels/{novel_id}/chapters/{chapter_index}/edit`。
+
+## 55. 开发者 B xhigh 同次检查点续跑处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P1 / C-P0-2：`scripts/mvp_demo.ps1` 新增 `-CheckpointResumes`，在 `-UseRealModel` 下只对已写入检查点的 `new` / `write` / `review` 失败步骤做同次续跑。
+- B-P1：`write` 步骤失败后，如果检测到同章章节版本、Writer、Continuity 或 Style 成功 AgentRun，会继续执行同一步；配合 workflow 复用 Writer / Continuity，可把 provider 子进程中断后的恢复留在同一次脚本里。
+- B-P1：`review` 步骤失败后，如果检测到 Reviewer 成功 AgentRun，会跳过重复审稿，继续后续导出和 `runs --fail-on-bad-status`。
+- B-P1 / C-P0-2：README、MVP 验收和接口冻结文档已把 6 章 xhigh 推荐命令补充为 `-CheckpointResumes 6`。
+
+验证结果：
+
+```text
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -CheckpointResumes 2
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 6 -OutlineChapters 6 -NewOutlineBatchSize 3 -OutlineBatchSize 3 -SkipOutline -SkipRewrite -StepRetries 0 -CheckpointResumes 3
+new 阶段首次 exit code -1 后同次 new resume 成功；write 阶段连续检查点续跑后仍耗尽额度并返回 exit code -1
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 6 -OutlineChapters 6 -NewOutlineBatchSize 3 -OutlineBatchSize 3 -SkipOutline -SkipRewrite -StepRetries 0 -CheckpointResumes 6 -WorkDir <work_dir> -ResumeNovelId <resume_novel_id>
+agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=643718
+export_size=19960
+```
+
+当前状态：
+
+- `new` 阶段已验证同次检查点续跑可用；`write` 阶段在本地 provider 持续 `exit code -1` 时仍可能需要提高 `-CheckpointResumes` 或用同一 `work_dir` 手动续跑。
+
+## 56. 开发者 B Style 检查点复用补强记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P1：`write_chapter` 续跑现在会在复用同章 Writer 输出时同步复用已成功的 Style `polish_style` AgentRun，避免 Style 成功后进程在保存章节前中断导致下一次续跑重复调用 Style。
+- B-P1：AgentRun 入库前会在输入含 `chapter_draft` 时补充 `_workflow.chapter_index` / `volume_index` / `chapter_id`，让 Continuity / Style 这类业务输出不自带章号的 AgentRun 也能被可靠定位。
+- B-P1：回归测试 `write_chapter_resume_reuses_persisted_continuity_and_style` 已覆盖同章第二次写作复用 Writer、Continuity 和 Style，且不重复插入 Continuity 报告。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+unit/API/storage: 3 passed
+smoke tests: 16 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -CheckpointResumes 2
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+export_size=9899
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 6 -OutlineChapters 6 -NewOutlineBatchSize 3 -OutlineBatchSize 3 -SkipOutline -SkipRewrite -StepRetries 0 -CheckpointResumes 6
+agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=639102
+export_size=20616
+```
+
+当前状态：
+
+- `write` 检查点恢复链路已从 Writer / Continuity 扩展到 Style；本轮真实 `gpt-5.5 + xhigh` 6 章从头跑通，后续如果再遇到 provider 子进程中断，应能少一次不必要的 Style 重打。
+
+## 57. 开发者 B UI 内容口径与返工类型处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P0：新增 `docs/UI_CONTENT_GUIDE.md`，给 C 侧审稿面板、连续性侧栏、事实表、AgentRun 面板和空状态文案提供展示口径。
+- B-P0：梳理每个 AgentRun role 的 UI 摘要来源，避免前端直接展示大段原始 JSON。
+- B-P0：Reviewer Prompt 已要求 `issues` 按严重程度排序、带可定位 `location`，`suggestions` 必须能直接转成作者待办。
+- B-P0：将 `rewrite_instruction.rewrite_type` 业务口径从 `none / partial / full` 扩展为 `none / partial / full / opening / ending / style`，覆盖整章重写、开头重写、结尾重写和语言润色。
+- B-P0：`docs/UI_CONTENT_GUIDE.md` 明确 3 个 UI demo 项目来源：`examples/urban_rebirth.md`、`examples/fantasy_upgrade.md`、`examples/romance_comeback.md`。
+- B-P1：Continuity / Style Prompt 已补充输出质量约束，重点约束 issues 排序、事实重要度、伏笔状态、Style changes 和 preserved_facts。
+- B-P1：新增 `docs/HUMAN_EVAL.md`，提供 provider / prompt / 题材样例人工评测表和失败原因归类。
+- B/C 协作：README、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md`、`docs/SCHEMAS.md` 和 `prompts/reviewer_agent.md` 已同步 UI 内容和返工类型口径。
+
+验证结果：
+
+```text
+文档/Prompt 口径更新，无 Rust 行为变更。
+cargo check ok
+git diff --check ok
+```
+
+当前状态：
+
+- C 侧可以按 `docs/UI_CONTENT_GUIDE.md` 接审稿面板和运行面板；B 侧后续 provider 对比和 prompt 版本对比可按 `docs/HUMAN_EVAL.md` 做人工评测。若前端需要新增持久化字段，再回到 `docs/API.md` 和 Rust DTO 层处理。
+
+## 58. 开发者 B 平台题材模板与钩子一致性处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P2：新增 `docs/PLATFORM_TEMPLATES.md`，沉淀起点 / 番茄 / 通用的平台策略、章尾钩子类型和人物行为一致性检查。
+- B-P2：为都市重生商业文、玄幻升级文、女性向逆袭复仇建立前三章节奏模板，供 Market / Plot / Writer / Reviewer 和 UI demo 共用。
+- B-P2：Market Prompt 已要求按题材模板输出前三章读者承诺、第一冲突和 Plot handoff 钩子方向。
+- B-P2：Plot Prompt 已补充章尾钩子自然延伸规则、人物变化可执行规则、重生信息差偏差和反派局部优势要求。
+- B-P2：Writer Prompt 已补充开头 800 字、中段压力密度、主角主动选择、配角动机和章尾自然延伸要求。
+- B-P2：Reviewer Prompt 已把非自然章尾钩子和人物行为不一致纳入扣分上限。
+- B/C 协作：README 和 `docs/WORKPLAN.md` 已同步平台模板、钩子和人物一致性状态。
+
+验证结果：
+
+```text
+文档/Prompt 口径更新，无 Rust 行为变更。
+cargo check ok
+git diff --check ok
+```
+
+当前状态：
+
+- B 线 P0/P1/P2 的提示词、UI 展示口径、人工评测表和平台题材模板都已有首版；后续可以开始按 `docs/HUMAN_EVAL.md` 做 provider / prompt 版本对比。
+
+## 59. 开发者 B 首条真实模型人工评测记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P2：新增 `docs/EVAL_LOG.md`，按 `docs/HUMAN_EVAL.md` 记录首条真实模型人工评测。
+- B-P2：评测对象为本地 OpenAI-compatible `gpt-5.5 + reasoning_effort=xhigh` 6 章短链路中的第 1 章《重生第一天，先撕罚款单》。
+- B-P2：记录了验收命令、`agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=639102`、`export_size=20616`、ReviewReport `total_score=88 passed=true` 和人工 10 维评分。
+- B-P2：人工总分 44 / 50，结论为“可用，建议小修后进入 Web demo”；主要改法是压缩跑单中段、补清欠薪金额线、强化母亲押金倒计时、后续加入未来记忆偏差。
+- B/C 协作：README、`docs/HUMAN_EVAL.md` 和 `docs/WORKPLAN.md` 已同步评测记录入口。
+
+验证结果：
+
+```text
+文档记录更新，无 Rust 行为变更。
+cargo check ok
+git diff --check ok
+```
+
+当前状态：
+
+- B 侧已有一条可复用的真实模型质量基线；下一条建议用同题材 DeepSeek 或新 Prompt 后的 `gpt-5.5 + xhigh` 结果做对照。
+
+## 60. 开发者 B DeepSeek 人工评测对照记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P2：`docs/EVAL_LOG.md` 新增 DeepSeek 历史真实输出评测，作为 `gpt-5.5 + xhigh` 都市重生第 1 章的 provider 对照。
+- B-P2：评测对象为 `deepseek / deepseek-chat` 完整真实 demo 历史输出中的第 1 章《重生：五百块与一个未来》，novel_id 为 `ebc0233d-278f-436f-94f7-6935e089c6ae`。
+- B-P2：记录历史链路 `agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=613501 tokenized_runs=0` 和 `export_size=25792`。
+- B-P2：人工总分 36 / 50，结论为“需要返工后再展示”；主要问题是即时压力不足、商业谈判偏顺、章尾钩子不够硬，适合作为 DeepSeek provider 质量基线。
+- B/C 协作：README、`docs/HUMAN_EVAL.md` 和 `docs/WORKPLAN.md` 已同步评测记录已覆盖 `gpt-5.5 xhigh` 与 DeepSeek 对照。
+
+验证结果：
+
+```text
+文档记录更新，无 Rust 行为变更。
+fresh DeepSeek API run 未执行：当前审批系统拦截了新真实 API 调用，本条使用已存在的历史真实输出。
+```
+
+当前状态：
+
+- B 侧已有两条真实模型人工质量基线：`gpt-5.5 + xhigh` 当前推荐样本 44 / 50，DeepSeek 历史对照样本 36 / 50。下一步可在最新 Prompt 下重新跑 DeepSeek，或做 `gpt-5.5 xhigh` prompt 版本对比。
+
+## 61. 开发者 B DeepSeek 对照反馈反灌 Prompt 记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P2：根据 DeepSeek 对照样本暴露出的“商业谈判过顺、未来趋势解释偏多、章尾只剩方向宣言”问题，补强 Market / Plot / Writer / Reviewer Prompt。
+- B-P2：Market Prompt 要求都市重生商业文的第一冲突必须包含外部阻力、失败代价和主角当场选择，并在 `opening_strategy.avoid` 中规避长篇商业模式解释。
+- B-P2：Plot Prompt 要求商业、创业、谈判类章节把机会写成冲突，落到订单、资金、合同、竞争压力或阻止损失，而不是只讲行业未来。
+- B-P2：Writer Prompt 要求商业谈判写成对抗场面，未来信息必须转化为动作、对白、判断失误或临场补救。
+- B-P2：Reviewer Prompt 对“谈判过顺”和“章尾方向宣言”设置 `pacing_score`、`payoff_score`、`cliffhanger_score` 扣分上限。
+- B-P2：`docs/PLATFORM_TEMPLATES.md` 新增都市重生商业场景最低要求，`docs/RUBRIC.md` 同步番茄向扣分和分数上限，供后续人工评测和 Prompt 迭代复用。
+
+验证结果：
+
+```text
+文档/Prompt 口径更新，无 Rust 行为变更。
+```
+
+当前状态：
+
+- DeepSeek 历史样本不再只是评测记录，已转化为下一轮生成的 Prompt 约束；后续重新跑 DeepSeek 或做 prompt 版本对比时，应重点观察第一章是否出现明确外部阻力、资源代价和章尾具体压力。
+
+## 62. 开发者 B 都市重生样例质量回归补强记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P1 / B-P2：`examples/urban_rebirth.md` 的 `expected_checks` 已补充外部阻力、失败代价、下一步压力等可测试要求，覆盖 DeepSeek 对照样本暴露的问题。
+- B-P1：都市样例 `writer.forbidden` 增加“合作无阻力谈成”“只讲趋势不写场景”“我要建立商业帝国”，避免商业文退化成方向宣言或行业分析。
+- B-P1：`tests/smoke.rs` 的都市 fixture 已同步新增 `外部阻力` 关键事件，并在正文 fixture 中写入失败代价和章尾具体订单压力。
+- B-P1：现有 `valid_json_model_outputs_match_fixture_expected_checks` 会消费这些新增断言，后续如果本地合法 JSON fixture 退化，会在 smoke test 中失败。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo test valid_json_model_outputs_match_fixture_expected_checks
+1 passed
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 16 passed
+```
+
+当前状态：
+
+- 都市重生商业文的 Prompt 约束、人工评测口径和自动 fixture 回归已形成闭环：评测发现问题 -> Prompt/Rubric 修正 -> expected_checks 固化。
+
+## 63. 开发者 B Provider 对照摘要与判读规则记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P2：`docs/EVAL_LOG.md` 新增 Provider 对照摘要表，把 `gpt-5.5 xhigh` 44 / 50 和 DeepSeek 历史样本 36 / 50 的 demo 状态、优势、风险和后续动作放到顶部。
+- B-P2：`docs/HUMAN_EVAL.md` 新增 Provider 对照判读规则，明确总分差、开篇抓力、冲突密度、章尾钩子和平台适配的判读口径。
+- B-P2：`docs/EVAL_LOG.md` 中 `gpt-5.5 xhigh` 条目的“下一次对比 DeepSeek”旧文案已更新为“DeepSeek 对照已完成，并已反灌到 Prompt / Rubric / expected_checks”。
+- B/C 协作：README 和 `docs/WORKPLAN.md` 已同步评测记录包含 provider 对照摘要和判读规则。
+
+验证结果：
+
+```text
+git diff --check
+ok，仅有 LF/CRLF 提示
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 16 passed
+```
+
+当前状态：
+
+- 后续新增 provider 或 prompt 版本评测时，可以先看 `docs/EVAL_LOG.md` 顶部摘要判断是否进入 Web demo、人工小修或失败原因库。
+
+## 64. 开发者 B Prompt 版本记录处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P2：新增 `docs/PROMPT_CHANGELOG.md`，记录当前 Prompt bundle `b-quality-2026-06-09-r3`、覆盖文件、关键变化和评测使用规则。
+- B-P2：`prompts/README.md` 已标明当前 Prompt bundle，并指向版本记录文档。
+- B-P2：`docs/HUMAN_EVAL.md` 的元数据和记录模板新增 `prompt_bundle` 字段，后续 provider / prompt 版本对比必须记录。
+- B-P2：`docs/EVAL_LOG.md` 已标注两条历史真实样本早于 `b-quality-2026-06-09-r3`，避免和新 Prompt 输出无标注直接比较。
+- B/C 协作：README 和 `docs/WORKPLAN.md` 已同步 Prompt 版本记录入口。
+
+验证结果：
+
+```text
+git diff --check
+ok，仅有 LF/CRLF 提示
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 16 passed
+```
+
+当前状态：
+
+- B 线质量评测现在具备三层追踪：provider 对照摘要、人工评分记录、Prompt bundle 版本记录。后续新增真实评测时可以明确区分“模型差异”和“Prompt 版本差异”。
+
+## 65. 开发者 B 评测日志元数据回归记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P2：`tests/smoke.rs` 新增 `eval_log_records_include_prompt_bundle_and_run_summary`，自动检查 `docs/EVAL_LOG.md` 中每条真实评测记录必须包含 `prompt_bundle`、AgentRun summary 和人工总分。
+- B-P2：该测试把第 64 轮新增的 Prompt bundle 追踪从“文档约定”推进到“新增评测记录会被测试提醒”。
+- B/C 协作：`docs/WORKPLAN.md` 已同步评测日志关键元数据纳入 smoke 测试。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo test eval_log_records_include_prompt_bundle_and_run_summary
+1 passed
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 17 passed
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- 后续追加 provider 或 prompt 版本评测时，如果漏写关键元数据，smoke test 会失败，避免评测日志重新变成不可比较的散记。
+
+## 66. 开发者 B Web demo 内容包与失败样例库记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B/C 协作：新增 `docs/WEB_DEMO_CONTENT.md`，给 C 侧主工作台提供 `urban_rebirth_fanqie_demo` 内容包，包含作品信息、第 1 章展示正文、ReviewReport mock、Continuity/facts mock、AgentRun mock 和 DeepSeek 负向对照摘要。
+- B-P2：新增 `docs/FAILURE_CASES.md`，沉淀 `quality_regression`、`parse_error`、`provider_error`、`eval_process` 四类失败样例。
+- B-P2：失败样例库已覆盖 DeepSeek 历史弱输出、DeepSeek Plot 长 JSON 截断、本地 `gpt-5.5 xhigh` provider 子进程中断、评测日志缺元数据风险。
+- B-P2：`tests/smoke.rs` 新增 `failure_cases_document_covers_known_failure_types`，防止失败样例库关键 case id 和类型丢失。
+- B/C 协作：README、`docs/UI_CONTENT_GUIDE.md` 和 `docs/WORKPLAN.md` 已同步 Web demo 内容包与失败样例库入口。
+
+验证结果：
+
+```text
+rustfmt --edition 2024 src/agents/mod.rs src/workflow/agent_runner.rs src/workflow/chapter_generation.rs src/workflow/novel_creation.rs tests/smoke.rs
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 4 passed
+smoke tests: 18 passed
+
+scripts/mvp_demo.ps1
+new -> outline -> write -> review -> rewrite -> versions -> edit -> export -> runs ok
+```
+
+当前状态：
+
+- C 侧已有可直接 mock 的主 demo 内容包；B 侧真实失败与弱输出已有失败样例库，不再只散落在长审查记录里。
