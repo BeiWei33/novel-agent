@@ -19,6 +19,8 @@ export function AgentRunsPage() {
   const [roleFilter, setRoleFilter] = useState<AgentRole | "all">("all");
   const [taskFilter, setTaskFilter] = useState<AgentTask | "all">("all");
   const [providerFilter, setProviderFilter] = useState<AgentRun["provider"] | "all">("all");
+  const [modelFilter, setModelFilter] = useState<string | "all">("all");
+  const [reasoningEffortFilter, setReasoningEffortFilter] = useState<string | "all">("all");
   const [novelIdFilter, setNovelIdFilter] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [streamState, setStreamState] = useState<{
@@ -34,8 +36,11 @@ export function AgentRunsPage() {
       status: statusFilter,
       role: roleFilter,
       task: taskFilter,
+      provider: providerFilter,
+      model: modelFilter,
+      reasoningEffort: reasoningEffortFilter,
     }),
-    [novelIdFilter, roleFilter, statusFilter, taskFilter],
+    [modelFilter, novelIdFilter, providerFilter, reasoningEffortFilter, roleFilter, statusFilter, taskFilter],
   );
   const runsQuery = useQuery({
     queryKey: queryKeys.agentRuns(runOptions),
@@ -85,6 +90,11 @@ export function AgentRunsPage() {
   }, [queryClient, runOptions, useSseSnapshots]);
   const runs = runsQuery.data?.runs ?? [];
   const providerOptions = useMemo(() => [...new Set(runs.map((run) => run.provider).filter(Boolean))].sort(), [runs]);
+  const modelOptions = useMemo(() => [...new Set(runs.map((run) => run.model).filter(nonEmptyString))].sort(), [runs]);
+  const reasoningEffortOptions = useMemo(
+    () => [...new Set(runs.map((run) => run.reasoning_effort).filter(nonEmptyString))].sort(),
+    [runs],
+  );
   const trimmedNovelIdFilter = novelIdFilter.trim();
   const filteredRuns = useMemo(
     () =>
@@ -104,9 +114,15 @@ export function AgentRunsPage() {
         if (providerFilter !== "all" && run.provider !== providerFilter) {
           return false;
         }
+        if (modelFilter !== "all" && run.model !== modelFilter) {
+          return false;
+        }
+        if (reasoningEffortFilter !== "all" && run.reasoning_effort !== reasoningEffortFilter) {
+          return false;
+        }
         return true;
       }),
-    [providerFilter, roleFilter, runs, statusFilter, taskFilter, trimmedNovelIdFilter],
+    [modelFilter, providerFilter, reasoningEffortFilter, roleFilter, runs, statusFilter, taskFilter, trimmedNovelIdFilter],
   );
   const activeRun = selectedRunId ? (filteredRuns.find((run) => run.id === selectedRunId) ?? filteredRuns[0] ?? null) : filteredRuns[0] ?? null;
   const runDetailQuery = useQuery({
@@ -155,6 +171,10 @@ export function AgentRunsPage() {
             taskFilter={taskFilter}
             providerFilter={providerFilter}
             providerOptions={providerOptions}
+            modelFilter={modelFilter}
+            modelOptions={modelOptions}
+            reasoningEffortFilter={reasoningEffortFilter}
+            reasoningEffortOptions={reasoningEffortOptions}
             novelIdFilter={novelIdFilter}
             onStatusChange={(value) => {
               setStatusFilter(value);
@@ -172,6 +192,14 @@ export function AgentRunsPage() {
               setProviderFilter(value);
               setSelectedRunId(null);
             }}
+            onModelChange={(value) => {
+              setModelFilter(value);
+              setSelectedRunId(null);
+            }}
+            onReasoningEffortChange={(value) => {
+              setReasoningEffortFilter(value);
+              setSelectedRunId(null);
+            }}
             onNovelIdChange={(value) => {
               setNovelIdFilter(value);
               setSelectedRunId(null);
@@ -181,6 +209,8 @@ export function AgentRunsPage() {
               setRoleFilter("all");
               setTaskFilter("all");
               setProviderFilter("all");
+              setModelFilter("all");
+              setReasoningEffortFilter("all");
               setNovelIdFilter("");
               setSelectedRunId(null);
             }}
@@ -201,6 +231,8 @@ export function AgentRunsPage() {
                         setRoleFilter("all");
                         setTaskFilter("all");
                         setProviderFilter("all");
+                        setModelFilter("all");
+                        setReasoningEffortFilter("all");
                         setNovelIdFilter("");
                       }}
                     >
@@ -261,11 +293,17 @@ function AgentRunFilters({
   taskFilter,
   providerFilter,
   providerOptions,
+  modelFilter,
+  modelOptions,
+  reasoningEffortFilter,
+  reasoningEffortOptions,
   novelIdFilter,
   onStatusChange,
   onRoleChange,
   onTaskChange,
   onProviderChange,
+  onModelChange,
+  onReasoningEffortChange,
   onNovelIdChange,
   onReset,
 }: {
@@ -274,11 +312,17 @@ function AgentRunFilters({
   taskFilter: AgentTask | "all";
   providerFilter: AgentRun["provider"] | "all";
   providerOptions: string[];
+  modelFilter: string | "all";
+  modelOptions: string[];
+  reasoningEffortFilter: string | "all";
+  reasoningEffortOptions: string[];
   novelIdFilter: string;
   onStatusChange: (value: AgentRunStatus | "all") => void;
   onRoleChange: (value: AgentRole | "all") => void;
   onTaskChange: (value: AgentTask | "all") => void;
   onProviderChange: (value: AgentRun["provider"] | "all") => void;
+  onModelChange: (value: string | "all") => void;
+  onReasoningEffortChange: (value: string | "all") => void;
   onNovelIdChange: (value: string) => void;
   onReset: () => void;
 }) {
@@ -316,6 +360,22 @@ function AgentRunFilters({
         {providerOptions.map((provider) => (
           <option key={provider} value={provider}>
             {provider}
+          </option>
+        ))}
+      </FilterSelect>
+      <FilterSelect label="model" value={modelFilter} onChange={onModelChange}>
+        <option value="all">全部</option>
+        {modelOptions.map((model) => (
+          <option key={model} value={model}>
+            {model}
+          </option>
+        ))}
+      </FilterSelect>
+      <FilterSelect label="reasoning" value={reasoningEffortFilter} onChange={onReasoningEffortChange}>
+        <option value="all">全部</option>
+        {reasoningEffortOptions.map((reasoningEffort) => (
+          <option key={reasoningEffort} value={reasoningEffort}>
+            {reasoningEffort}
           </option>
         ))}
       </FilterSelect>
@@ -465,6 +525,10 @@ function summarizePageAgentRuns(runs: AgentRun[]): AgentRunStatusSummary {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("zh-CN").format(value);
+}
+
+function nonEmptyString(value: string | null | undefined): value is string {
+  return Boolean(value);
 }
 
 function DetailItem({ label, value }: { label: string; value: string }) {
