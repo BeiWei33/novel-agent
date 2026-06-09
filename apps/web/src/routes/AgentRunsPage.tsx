@@ -18,15 +18,17 @@ export function AgentRunsPage() {
   const [roleFilter, setRoleFilter] = useState<AgentRole | "all">("all");
   const [taskFilter, setTaskFilter] = useState<AgentTask | "all">("all");
   const [providerFilter, setProviderFilter] = useState<AgentRun["provider"] | "all">("all");
+  const [novelIdFilter, setNovelIdFilter] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const runOptions = useMemo<AgentRunListOptions>(
     () => ({
       limit: 50,
+      novelId: novelIdFilter,
       status: statusFilter,
       role: roleFilter,
       task: taskFilter,
     }),
-    [roleFilter, statusFilter, taskFilter],
+    [novelIdFilter, roleFilter, statusFilter, taskFilter],
   );
   const runsQuery = useQuery({
     queryKey: queryKeys.agentRuns(runOptions),
@@ -34,9 +36,13 @@ export function AgentRunsPage() {
     refetchInterval: 10_000,
   });
   const runs = runsQuery.data?.runs ?? [];
+  const trimmedNovelIdFilter = novelIdFilter.trim();
   const filteredRuns = useMemo(
     () =>
       runs.filter((run) => {
+        if (trimmedNovelIdFilter && run.novel_id !== trimmedNovelIdFilter) {
+          return false;
+        }
         if (statusFilter !== "all" && run.status !== statusFilter) {
           return false;
         }
@@ -51,7 +57,7 @@ export function AgentRunsPage() {
         }
         return true;
       }),
-    [providerFilter, roleFilter, runs, statusFilter, taskFilter],
+    [providerFilter, roleFilter, runs, statusFilter, taskFilter, trimmedNovelIdFilter],
   );
   const activeRun = selectedRunId ? (filteredRuns.find((run) => run.id === selectedRunId) ?? filteredRuns[0] ?? null) : filteredRuns[0] ?? null;
   const summary = useMemo(
@@ -75,6 +81,7 @@ export function AgentRunsPage() {
             roleFilter={roleFilter}
             taskFilter={taskFilter}
             providerFilter={providerFilter}
+            novelIdFilter={novelIdFilter}
             onStatusChange={(value) => {
               setStatusFilter(value);
               setSelectedRunId(null);
@@ -91,11 +98,16 @@ export function AgentRunsPage() {
               setProviderFilter(value);
               setSelectedRunId(null);
             }}
+            onNovelIdChange={(value) => {
+              setNovelIdFilter(value);
+              setSelectedRunId(null);
+            }}
             onReset={() => {
               setStatusFilter("all");
               setRoleFilter("all");
               setTaskFilter("all");
               setProviderFilter("all");
+              setNovelIdFilter("");
               setSelectedRunId(null);
             }}
           />
@@ -115,6 +127,7 @@ export function AgentRunsPage() {
                         setRoleFilter("all");
                         setTaskFilter("all");
                         setProviderFilter("all");
+                        setNovelIdFilter("");
                       }}
                     >
                       清空筛选
@@ -171,20 +184,24 @@ function AgentRunFilters({
   roleFilter,
   taskFilter,
   providerFilter,
+  novelIdFilter,
   onStatusChange,
   onRoleChange,
   onTaskChange,
   onProviderChange,
+  onNovelIdChange,
   onReset,
 }: {
   statusFilter: AgentRunStatus | "all";
   roleFilter: AgentRole | "all";
   taskFilter: AgentTask | "all";
   providerFilter: AgentRun["provider"] | "all";
+  novelIdFilter: string;
   onStatusChange: (value: AgentRunStatus | "all") => void;
   onRoleChange: (value: AgentRole | "all") => void;
   onTaskChange: (value: AgentTask | "all") => void;
   onProviderChange: (value: AgentRun["provider"] | "all") => void;
+  onNovelIdChange: (value: string) => void;
   onReset: () => void;
 }) {
   return (
@@ -222,6 +239,7 @@ function AgentRunFilters({
         <option value="openai">openai</option>
         <option value="deepseek">deepseek</option>
       </FilterSelect>
+      <FilterInput label="作品 ID" value={novelIdFilter} onChange={onNovelIdChange} placeholder="novel_id" />
       <Button size="sm" variant="ghost" onClick={onReset}>
         清空
       </Button>
@@ -246,6 +264,30 @@ function FilterSelect({
       <select value={value} onChange={(event) => onChange(event.target.value)} className="input h-8 w-36">
         {children}
       </select>
+    </label>
+  );
+}
+
+function FilterInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+      {label}
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="input h-8 w-44"
+      />
     </label>
   );
 }
