@@ -20,6 +20,17 @@ export function ApiStatus() {
       : status.mode === "mock"
         ? "local"
         : "online";
+  const healthDetails = healthQuery.data
+    ? [healthQuery.data.service, healthQuery.data.version].filter(Boolean).join(" ")
+    : "";
+  const sseLabel = !status.sseEnabled
+    ? "off"
+    : !status.sseReady
+      ? "unsupported"
+      : healthQuery.data?.sse === false
+        ? "server off"
+        : "on";
+  const sseTone = sseLabel === "on" ? "teal" : "slate";
   const HealthIcon = healthQuery.isError ? WifiOff : Wifi;
   return (
     <div className="border-t border-line p-3">
@@ -32,6 +43,7 @@ export function ApiStatus() {
           <Badge tone={status.mode === "mock" ? "amber" : "teal"}>{status.mode}</Badge>
         </div>
         <div className="truncate text-xs text-slate-500">{status.baseUrl ?? "mock://local-session"}</div>
+        {healthDetails ? <div className="truncate text-xs text-slate-500">{healthDetails}</div> : null}
         <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
           <span className="inline-flex items-center gap-1">
             <HealthIcon className="h-3.5 w-3.5" />
@@ -47,7 +59,7 @@ export function ApiStatus() {
             <RadioTower className="h-3.5 w-3.5" />
             SSE
           </span>
-          <Badge tone={status.sseEnabled ? "teal" : "slate"}>{status.sseEnabled ? "on" : "off"}</Badge>
+          <Badge tone={sseTone}>{sseLabel}</Badge>
         </div>
       </div>
     </div>

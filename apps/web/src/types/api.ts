@@ -14,7 +14,10 @@ export interface ApiClientStatus {
 
 export interface ApiHealthStatus {
   status: string;
+  service?: string;
+  version?: string;
   checked_at: string;
+  sse?: boolean;
 }
 
 export interface ChapterStreamEvent {

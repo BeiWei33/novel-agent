@@ -722,16 +722,22 @@ export const api = {
 
   async getHealth(): Promise<ApiHealthStatus> {
     if (!useMock) {
-      const payload = await request<{ status: string }>("/health");
+      const payload = await request<Partial<ApiHealthStatus> & { status: string }>("/health");
       return {
         status: payload.status,
-        checked_at: new Date().toISOString(),
+        service: payload.service,
+        version: payload.version,
+        checked_at: payload.checked_at ?? new Date().toISOString(),
+        sse: payload.sse,
       };
     }
     await sleep(80);
     return {
       status: "mock",
+      service: "novel-agent",
+      version: "mock",
       checked_at: new Date().toISOString(),
+      sse: sseEnabled,
     };
   },
 
