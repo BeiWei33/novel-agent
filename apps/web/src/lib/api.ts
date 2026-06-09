@@ -65,6 +65,22 @@ interface NovelDetailResponse {
   facts?: NovelDetail["facts"];
 }
 
+interface BibleResponse {
+  bible?: NovelBible | null;
+}
+
+interface CharactersResponse {
+  characters?: NovelDetail["characters"];
+}
+
+interface WorldSettingResponse {
+  world_setting?: WorldSetting | null;
+}
+
+interface FactsResponse {
+  facts?: NovelDetail["facts"];
+}
+
 interface ChapterVersionsResponse {
   novel_id: string;
   chapter_id: string;
@@ -215,6 +231,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(message, response.status);
   }
   return response.json() as Promise<T>;
+}
+
+async function requestIfAvailable<T>(path: string): Promise<T | null> {
+  try {
+    return await request<T>(path);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 405)) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function clone<T>(value: T): T {
@@ -776,14 +803,20 @@ export const api = {
   async getNovel(novelId: string): Promise<NovelDetail> {
     if (!useMock) {
       const payload = await request<NovelDetailResponse>(`/api/novels/${novelId}`);
+      const [biblePayload, charactersPayload, worldPayload, factsPayload] = await Promise.all([
+        requestIfAvailable<BibleResponse>(`/api/novels/${novelId}/bible`),
+        requestIfAvailable<CharactersResponse>(`/api/novels/${novelId}/characters`),
+        requestIfAvailable<WorldSettingResponse>(`/api/novels/${novelId}/world-settings`),
+        requestIfAvailable<FactsResponse>(`/api/novels/${novelId}/facts?limit=100`),
+      ]);
       const chapters = payload.chapters ?? [];
       return {
         novel: payload.novel,
-        bible: payload.bible ?? emptyBible(payload.novel),
-        characters: payload.characters ?? [],
-        world_setting: payload.world_setting ?? emptyWorldSetting(),
+        bible: biblePayload?.bible ?? payload.bible ?? emptyBible(payload.novel),
+        characters: charactersPayload?.characters ?? payload.characters ?? [],
+        world_setting: worldPayload?.world_setting ?? payload.world_setting ?? emptyWorldSetting(),
         chapter_outlines: chapters.map(outlineFromChapter),
-        facts: payload.facts ?? [],
+        facts: factsPayload?.facts ?? payload.facts ?? [],
       };
     }
     await sleep();
