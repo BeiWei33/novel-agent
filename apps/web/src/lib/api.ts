@@ -1338,7 +1338,15 @@ export const api = {
 
   async exportMarkdown(novelId: string): Promise<string> {
     if (!useMock) {
-      const payload = await request<ExportMarkdownResponse>(`/api/novels/${novelId}/export/markdown`);
+      let payload: ExportMarkdownResponse;
+      try {
+        payload = await request<ExportMarkdownResponse>(`/api/novels/${novelId}/export`, { method: "POST" });
+      } catch (error) {
+        if (!(error instanceof ApiError) || (error.status !== 404 && error.status !== 405)) {
+          throw error;
+        }
+        payload = await request<ExportMarkdownResponse>(`/api/novels/${novelId}/export/markdown`);
+      }
       return payload.markdown;
     }
     await sleep(260);
