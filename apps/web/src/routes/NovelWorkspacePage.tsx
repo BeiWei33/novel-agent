@@ -64,8 +64,7 @@ export function NovelWorkspacePage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.novels }),
         queryClient.invalidateQueries({ queryKey: queryKeys.novel(novelId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.chapters(novelId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns(novelId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.agentRunsRoot }),
       ]);
     },
     onSettled: () => {
@@ -86,8 +85,7 @@ export function NovelWorkspacePage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.novels }),
         queryClient.invalidateQueries({ queryKey: queryKeys.novel(novelId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.chapters(novelId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns(novelId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.agentRunsRoot }),
       ]);
     },
     onSettled: () => {
@@ -108,8 +106,7 @@ export function NovelWorkspacePage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.novels }),
         queryClient.invalidateQueries({ queryKey: queryKeys.novel(novelId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.chapters(novelId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns(novelId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.agentRunsRoot }),
       ]);
     },
     onSettled: () => {

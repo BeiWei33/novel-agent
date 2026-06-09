@@ -1,5 +1,8 @@
 import type {
+  AgentRole,
   AgentRun,
+  AgentRunStatus,
+  AgentTask,
   ApiJob,
   ApiJobKind,
   ApiJobStatus,
@@ -89,6 +92,47 @@ interface AgentRunsResponse {
 
 type ChapterJobKind = Extract<ApiJobKind, "write_chapter" | "review_chapter" | "rewrite_chapter">;
 
+export interface AgentRunListOptions {
+  novelId?: string;
+  limit?: number;
+  role?: AgentRole | "all";
+  task?: AgentTask | "all";
+  status?: AgentRunStatus | "all";
+}
+
+interface NormalizedAgentRunListOptions {
+  novelId?: string;
+  limit: number;
+  role?: AgentRole;
+  task?: AgentTask;
+  status?: AgentRunStatus;
+}
+
+function agentRunListOptions(options: string | AgentRunListOptions = {}): AgentRunListOptions {
+  return typeof options === "string" ? { novelId: options } : options;
+}
+
+function normalizeAgentRunListOptions(options: string | AgentRunListOptions = {}): NormalizedAgentRunListOptions {
+  const input = agentRunListOptions(options);
+  const normalized: NormalizedAgentRunListOptions = {
+    limit: Math.max(1, Math.round(input.limit ?? 50)),
+  };
+  const novelId = input.novelId?.trim();
+  if (novelId) {
+    normalized.novelId = novelId;
+  }
+  if (input.role && input.role !== "all") {
+    normalized.role = input.role;
+  }
+  if (input.task && input.task !== "all") {
+    normalized.task = input.task;
+  }
+  if (input.status && input.status !== "all") {
+    normalized.status = input.status;
+  }
+  return normalized;
+}
+
 export interface JobListOptions {
   limit?: number;
   status?: ApiJobStatus | "all";
@@ -133,7 +177,8 @@ export const queryKeys = {
   chapter: (novelId: string, chapterIndex: number) => ["chapter", novelId, chapterIndex] as const,
   versions: (chapterId: string) => ["versions", chapterId] as const,
   review: (chapterId: string) => ["review", chapterId] as const,
-  agentRuns: (novelId?: string) => ["agent-runs", novelId ?? "all"] as const,
+  agentRunsRoot: ["agent-runs"] as const,
+  agentRuns: (options: string | AgentRunListOptions = {}) => ["agent-runs", normalizeAgentRunListOptions(options)] as const,
   jobsRoot: ["jobs"] as const,
   jobs: (options: JobListOptions = {}) => ["jobs", normalizeJobListOptions(options)] as const,
   job: (jobId: string) => ["job", jobId] as const,
@@ -278,6 +323,36 @@ function normalizeAgentRun(run: AgentRunsResponse["runs"][number]): AgentRun {
       run.output_summary ??
       (run.parse_error ? `运行失败：${run.parse_error}` : `${run.role} / ${run.task} 已记录。`),
   };
+}
+
+function agentRunParams(filters: NormalizedAgentRunListOptions, limit = filters.limit): string {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (filters.role) {
+    params.set("role", filters.role);
+  }
+  if (filters.task) {
+    params.set("task", filters.task);
+  }
+  if (filters.status && filters.status !== "running") {
+    params.set("status", filters.status);
+  }
+  return params.toString();
+}
+
+function matchesAgentRunFilters(run: AgentRun, filters: NormalizedAgentRunListOptions): boolean {
+  if (filters.novelId && run.novel_id !== filters.novelId) {
+    return false;
+  }
+  if (filters.role && run.role !== filters.role) {
+    return false;
+  }
+  if (filters.task && run.task !== filters.task) {
+    return false;
+  }
+  if (filters.status && run.status !== filters.status) {
+    return false;
+  }
+  return true;
 }
 
 function createNovelRequest(input: CreateNovelInput): Record<string, unknown> {
@@ -867,24 +942,28 @@ export const api = {
     return clone(db.reviews[chapter.id] ?? null);
   },
 
-  async getAgentRuns(novelId?: string): Promise<AgentRun[]> {
+  async getAgentRuns(options: string | AgentRunListOptions = {}): Promise<AgentRun[]> {
+    const filters = normalizeAgentRunListOptions(options);
     if (!useMock) {
-      if (novelId) {
-        const payload = await request<AgentRunsResponse>(`/api/novels/${novelId}/runs?limit=50`);
+      if (filters.novelId) {
+        const payload = await request<AgentRunsResponse>(`/api/novels/${filters.novelId}/runs?${agentRunParams(filters)}`);
         return payload.runs.map(normalizeAgentRun);
       }
       const novelsPayload = await request<{ novels: Novel[] }>("/api/novels?limit=10");
+      const perNovelLimit = Math.min(filters.limit, 50);
       const responses = await Promise.all(
         novelsPayload.novels.map((novel) =>
-          request<AgentRunsResponse>(`/api/novels/${novel.id}/runs?limit=10`).catch(() => ({ runs: [] })),
+          request<AgentRunsResponse>(`/api/novels/${novel.id}/runs?${agentRunParams(filters, perNovelLimit)}`).catch(() => ({ runs: [] })),
         ),
       );
       return responses
         .flatMap((response) => response.runs.map(normalizeAgentRun))
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        .filter((run) => matchesAgentRunFilters(run, filters))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, filters.limit);
     }
     await sleep();
-    return clone(novelId ? db.agentRuns.filter((run) => run.novel_id === novelId) : db.agentRuns);
+    return clone(db.agentRuns.filter((run) => matchesAgentRunFilters(run, filters)).slice(0, filters.limit));
   },
 
   async createChapterJob(novelId: string, chapterIndex: number, kind: ChapterJobKind): Promise<ApiJob> {

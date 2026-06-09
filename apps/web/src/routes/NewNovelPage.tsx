@@ -14,7 +14,7 @@ export function NewNovelPage() {
     onSuccess: async (novel) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.novels }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.agentRunsRoot }),
       ]);
       navigate(`/novels/${novel.id}`);
     },

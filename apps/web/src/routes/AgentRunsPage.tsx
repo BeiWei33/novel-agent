@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { AgentRole, AgentRun, AgentRunStatus } from "../types/domain";
+import type { AgentRole, AgentRun, AgentRunStatus, AgentTask } from "../types/domain";
 import { api, queryKeys } from "../lib/api";
+import type { AgentRunListOptions } from "../lib/api";
 import { agentRoleLabels, agentTaskLabels, formatDateTime, formatDuration } from "../lib/format";
 import { AgentRunTable } from "../features/agent-runs/AgentRunTable";
 import { PageHeader } from "../components/PageHeader";
@@ -15,11 +16,21 @@ import { Button } from "../components/ui/Button";
 export function AgentRunsPage() {
   const [statusFilter, setStatusFilter] = useState<AgentRunStatus | "all">("all");
   const [roleFilter, setRoleFilter] = useState<AgentRole | "all">("all");
+  const [taskFilter, setTaskFilter] = useState<AgentTask | "all">("all");
   const [providerFilter, setProviderFilter] = useState<AgentRun["provider"] | "all">("all");
-  const [selectedRun, setSelectedRun] = useState<AgentRun | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const runOptions = useMemo<AgentRunListOptions>(
+    () => ({
+      limit: 50,
+      status: statusFilter,
+      role: roleFilter,
+      task: taskFilter,
+    }),
+    [roleFilter, statusFilter, taskFilter],
+  );
   const runsQuery = useQuery({
-    queryKey: queryKeys.agentRuns(),
-    queryFn: () => api.getAgentRuns(),
+    queryKey: queryKeys.agentRuns(runOptions),
+    queryFn: () => api.getAgentRuns(runOptions),
     refetchInterval: 10_000,
   });
   const runs = runsQuery.data ?? [];
@@ -32,14 +43,17 @@ export function AgentRunsPage() {
         if (roleFilter !== "all" && run.role !== roleFilter) {
           return false;
         }
+        if (taskFilter !== "all" && run.task !== taskFilter) {
+          return false;
+        }
         if (providerFilter !== "all" && run.provider !== providerFilter) {
           return false;
         }
         return true;
       }),
-    [providerFilter, roleFilter, runs, statusFilter],
+    [providerFilter, roleFilter, runs, statusFilter, taskFilter],
   );
-  const activeRun = selectedRun && filteredRuns.some((run) => run.id === selectedRun.id) ? selectedRun : filteredRuns[0] ?? null;
+  const activeRun = selectedRunId ? (filteredRuns.find((run) => run.id === selectedRunId) ?? filteredRuns[0] ?? null) : filteredRuns[0] ?? null;
 
   return (
     <div>
@@ -55,20 +69,35 @@ export function AgentRunsPage() {
           <AgentRunFilters
             statusFilter={statusFilter}
             roleFilter={roleFilter}
+            taskFilter={taskFilter}
             providerFilter={providerFilter}
-            onStatusChange={setStatusFilter}
-            onRoleChange={setRoleFilter}
-            onProviderChange={setProviderFilter}
+            onStatusChange={(value) => {
+              setStatusFilter(value);
+              setSelectedRunId(null);
+            }}
+            onRoleChange={(value) => {
+              setRoleFilter(value);
+              setSelectedRunId(null);
+            }}
+            onTaskChange={(value) => {
+              setTaskFilter(value);
+              setSelectedRunId(null);
+            }}
+            onProviderChange={(value) => {
+              setProviderFilter(value);
+              setSelectedRunId(null);
+            }}
             onReset={() => {
               setStatusFilter("all");
               setRoleFilter("all");
+              setTaskFilter("all");
               setProviderFilter("all");
-              setSelectedRun(null);
+              setSelectedRunId(null);
             }}
           />
           <div className="grid min-h-[620px] grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]">
             {filteredRuns.length > 0 ? (
-              <AgentRunTable runs={filteredRuns} selectedRunId={activeRun?.id} onSelectRun={setSelectedRun} />
+              <AgentRunTable runs={filteredRuns} selectedRunId={activeRun?.id} onSelectRun={(run) => setSelectedRunId(run.id)} />
             ) : (
               <div className="p-4">
                 <EmptyState
@@ -79,6 +108,7 @@ export function AgentRunsPage() {
                       onClick={() => {
                         setStatusFilter("all");
                         setRoleFilter("all");
+                        setTaskFilter("all");
                         setProviderFilter("all");
                       }}
                     >
@@ -99,17 +129,21 @@ export function AgentRunsPage() {
 function AgentRunFilters({
   statusFilter,
   roleFilter,
+  taskFilter,
   providerFilter,
   onStatusChange,
   onRoleChange,
+  onTaskChange,
   onProviderChange,
   onReset,
 }: {
   statusFilter: AgentRunStatus | "all";
   roleFilter: AgentRole | "all";
+  taskFilter: AgentTask | "all";
   providerFilter: AgentRun["provider"] | "all";
   onStatusChange: (value: AgentRunStatus | "all") => void;
   onRoleChange: (value: AgentRole | "all") => void;
+  onTaskChange: (value: AgentTask | "all") => void;
   onProviderChange: (value: AgentRun["provider"] | "all") => void;
   onReset: () => void;
 }) {
@@ -126,6 +160,14 @@ function AgentRunFilters({
         <option value="all">全部</option>
         {Object.entries(agentRoleLabels).map(([role, label]) => (
           <option key={role} value={role}>
+            {label}
+          </option>
+        ))}
+      </FilterSelect>
+      <FilterSelect label="任务" value={taskFilter} onChange={(value) => onTaskChange(value as AgentTask | "all")}>
+        <option value="all">全部</option>
+        {Object.entries(agentTaskLabels).map(([task, label]) => (
+          <option key={task} value={task}>
             {label}
           </option>
         ))}

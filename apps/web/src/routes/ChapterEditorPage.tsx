@@ -113,8 +113,7 @@ export function ChapterEditorPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.chapter(novelId, chapterNumber) }),
       queryClient.invalidateQueries({ queryKey: ["chapter-versions", novelId, chapterNumber] }),
       queryClient.invalidateQueries({ queryKey: ["chapter-review", novelId, chapterNumber] }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns() }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns(novelId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.agentRunsRoot }),
     ]);
     if (updated) {
       clearEditorDraft(updated.id);
