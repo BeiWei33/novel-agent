@@ -446,6 +446,19 @@ try {
     if ($null -ne $wrongGlobalRun) {
         throw "Global filtered AgentRun API returned unexpected novel/role/task/status."
     }
+    $RunId = $globalWriterRuns.runs[0].id
+    $runDetail = Invoke-ApiJson "agent run detail" "Get" "/api/runs/$RunId"
+    if ($runDetail.run.id -ne $RunId -or $runDetail.run.novel_id -ne $NovelId) {
+        throw "AgentRun detail API returned wrong run."
+    }
+    $aliasRuns = Invoke-ApiJson "agent runs alias" "Get" "/api/agent-runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&status=ok"
+    if ($aliasRuns.runs.Count -ne $globalWriterRuns.runs.Count) {
+        throw "AgentRun alias API returned different count from /api/runs."
+    }
+    $aliasRunDetail = Invoke-ApiJson "agent run alias detail" "Get" "/api/agent-runs/$RunId"
+    if ($aliasRunDetail.run.id -ne $RunId) {
+        throw "AgentRun alias detail API returned wrong run."
+    }
 
     Write-Host "=== result ==="
     Write-Host "novel_id=$NovelId"

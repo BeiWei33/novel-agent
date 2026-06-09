@@ -1021,6 +1021,21 @@ impl AgentRunRepository<'_> {
         Ok(())
     }
 
+    pub async fn find(&self, run_id: &str) -> Result<Option<AgentRunRecord>, StorageError> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, novel_id, role, task, structured, raw_text, raw_notes, parse_error, created_at
+            FROM agent_runs
+            WHERE id = ?1
+            "#,
+        )
+        .bind(run_id)
+        .fetch_optional(self.pool)
+        .await?;
+
+        row.map(row_to_agent_run_record).transpose()
+    }
+
     pub async fn list_recent(
         &self,
         novel_id: Option<&NovelId>,

@@ -485,11 +485,14 @@ GET /api/novels/{novel_id}/export/markdown
 ```http
 GET /api/runs?limit=50
 GET /api/runs?limit=50&novel_id=...&role=writer&task=generate_chapter&status=ok
+GET /api/runs/{run_id}
+GET /api/agent-runs?limit=50
+GET /api/agent-runs/{run_id}
 GET /api/novels/{novel_id}/runs?limit=20
 GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&status=ok
 ```
 
-全局 `GET /api/runs` 可选传 `novel_id`；作品内 `GET /api/novels/{novel_id}/runs` 固定查当前作品。`role` / `task` / `status` 均为可选筛选参数。`status` 必须是 `ok`、`fallback`、`parse_error` 之一；非法值返回 `400 Bad Request`。`summary` 基于筛选后的 `runs` 计算。
+全局 `GET /api/runs` 可选传 `novel_id`；`GET /api/agent-runs` 是给 Web 工作台保留的兼容别名，查询参数和响应与 `/api/runs` 相同。作品内 `GET /api/novels/{novel_id}/runs` 固定查当前作品。`role` / `task` / `status` 均为可选筛选参数。`status` 必须是 `ok`、`fallback`、`parse_error` 之一；非法值返回 `400 Bad Request`。`summary` 基于筛选后的 `runs` 计算。
 
 响应：
 
@@ -523,5 +526,13 @@ GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&statu
     "completion_tokens": 400,
     "total_tokens": 1200
   }
+}
+```
+
+详情响应：
+
+```json
+{
+  "run": {}
 }
 ```

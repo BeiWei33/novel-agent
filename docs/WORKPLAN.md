@@ -100,7 +100,7 @@ ChapterVersion
 优先级 P2：
 
 - 已支持 SQLite 持久化后台任务记录、payload、retry 来源关系、进度字段、status/kind/novel_id/source_job_id 列表筛选、遗留任务收口、失败任务重试、queued/running 任务取消和批量章节写作 job
-- 已支持 AgentRun token / duration 汇总统计、全局查询和 role/task/status 筛选
+- 已支持 AgentRun token / duration 汇总统计、全局查询、详情查询、兼容别名和 role/task/status 筛选
 - 支持 AgentRun cost 统计
 - 支持 provider 在线切换
 - 准备 workspace 拆分

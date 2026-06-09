@@ -41,6 +41,9 @@ pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
         .route("/api/jobs/{job_id}/retry", post(retry_job))
         .route("/api/jobs/{job_id}/cancel", post(cancel_job))
         .route("/api/runs", get(list_all_agent_runs))
+        .route("/api/runs/{run_id}", get(get_agent_run))
+        .route("/api/agent-runs", get(list_all_agent_runs))
+        .route("/api/agent-runs/{run_id}", get(get_agent_run))
         .route("/api/novels", get(list_novels).post(create_novel))
         .route("/api/novels/jobs", post(create_novel_job))
         .route("/api/novels/{novel_id}", get(get_novel))
@@ -748,6 +751,21 @@ async fn list_all_agent_runs(
         ensure_novel_exists(&state.storage, novel_id).await?;
     }
     agent_runs_response(&state, novel_id.as_ref(), query, 50).await
+}
+
+async fn get_agent_run(
+    State(state): State<ApiState>,
+    Path(run_id): Path<String>,
+) -> Result<Json<AgentRunDetailResponse>, ApiError> {
+    let run = state
+        .storage
+        .agent_runs()
+        .find(&run_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found(format!("agent run `{run_id}` was not found")))?;
+    Ok(Json(AgentRunDetailResponse {
+        run: AgentRunResponse::from_record(&run),
+    }))
 }
 
 async fn agent_runs_response(
@@ -1549,6 +1567,11 @@ struct ExportMarkdownResponse {
 struct AgentRunsResponse {
     runs: Vec<AgentRunResponse>,
     summary: AgentRunStatusSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct AgentRunDetailResponse {
+    run: AgentRunResponse,
 }
 
 #[derive(Debug, Serialize)]
@@ -2403,6 +2426,57 @@ mod tests {
                 && run["task"].as_str() == Some("generate_chapter")
                 && run["status"].as_str() == Some("ok")
         }));
+
+        let first_run_id = global_runs[0]["id"].as_str().unwrap();
+        let run_detail_response = app
+            .clone()
+            .oneshot(empty_request("GET", &format!("/api/runs/{first_run_id}")))
+            .await
+            .unwrap();
+        assert_eq!(run_detail_response.status(), StatusCode::OK);
+        let run_detail_json = response_json(run_detail_response).await;
+        assert_eq!(run_detail_json["run"]["id"].as_str(), Some(first_run_id));
+        assert_eq!(run_detail_json["run"]["novel_id"].as_str(), Some(novel_id));
+
+        let agent_runs_alias_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/api/agent-runs?limit=20&novel_id={novel_id}&role=writer&task=generate_chapter&status=ok"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(agent_runs_alias_response.status(), StatusCode::OK);
+        let agent_runs_alias_json = response_json(agent_runs_alias_response).await;
+        assert_eq!(
+            agent_runs_alias_json["runs"].as_array().unwrap().len(),
+            global_runs.len()
+        );
+
+        let agent_run_alias_detail_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/api/agent-runs/{first_run_id}"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(agent_run_alias_detail_response.status(), StatusCode::OK);
+        let agent_run_alias_detail_json = response_json(agent_run_alias_detail_response).await;
+        assert_eq!(
+            agent_run_alias_detail_json["run"]["id"].as_str(),
+            Some(first_run_id)
+        );
+
+        let missing_run_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                "/api/runs/00000000-0000-0000-0000-000000000000",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(missing_run_response.status(), StatusCode::NOT_FOUND);
 
         let invalid_run_status_response = app
             .oneshot(empty_request(

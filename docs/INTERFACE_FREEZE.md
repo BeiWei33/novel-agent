@@ -126,6 +126,9 @@ REST API：
 serve --bind 127.0.0.1:3001 -> docs/API.md 中的 /api/novels/... 路径
 PUT /api/novels/{novel_id}/chapters/{chapter_index}/edit
 GET /api/runs?limit=<n>&novel_id=<novel_id>&role=<role>&task=<task>&status=<status>
+GET /api/runs/{run_id}
+GET /api/agent-runs?limit=<n>&novel_id=<novel_id>&role=<role>&task=<task>&status=<status>
+GET /api/agent-runs/{run_id}
 ```
 
 REST Jobs API：
@@ -151,7 +154,7 @@ POST /api/jobs/{job_id}/cancel
 批量章节写作 job 路径为 `POST /api/novels/{novel_id}/chapters/write/jobs`，请求字段固定为 `chapter_start` / `chapter_end`。该 job 的 `kind` 为 `write_chapters`，`chapter_index` 为 `null`，`progress_total` 为章节数量，`payload` 保存 `chapter_start`、`chapter_end` 和 `chapter_indexes`，成功 `result` 固定包含 `chapter_start`、`chapter_end` 和 `drafts`。批量写作按章节顺序复用单章 workflow，任一章节完成后推进 `progress_current`；任一章节失败则 job 进入 `failed` 并保留当前进度，已保存章节保留。
 `GET /api/novels/{novel_id}/facts` 返回作品事实列表，支持 `limit`；`GET /api/novels/{novel_id}/chapters/{chapter_index}/continuity` 返回该章节最新连续性报告，报告内容保持 Continuity Agent 结构化 JSON。
 `PUT /api/novels/{novel_id}/chapters/{chapter_index}/edit` 接受 `title?` / `content` / `summary?`，返回 `{ "draft": {} }`；`content` 不能为空。该接口复用人工 `edit` workflow，只保存新章节版本，不调用 Agent、不生成 `agent_runs`、不自动刷新 facts。
-`GET /api/runs` 支持全局 AgentRun 查询，可选 `novel_id` / `role` / `task` / `status` / `limit`；`GET /api/novels/{novel_id}/runs` 支持作品内 `limit` / `role` / `task` / `status` 查询。`status` 固定为 `ok`、`fallback`、`parse_error`，非法值必须返回 `400 Bad Request`，`summary` 按筛选后的 runs 计算。
+`GET /api/runs` 支持全局 AgentRun 查询，可选 `novel_id` / `role` / `task` / `status` / `limit`；`GET /api/runs/{run_id}` 返回单条 `{ "run": {} }`。`GET /api/agent-runs` 和 `GET /api/agent-runs/{run_id}` 是 Web 工作台兼容别名，响应与 `/api/runs` 系列一致。`GET /api/novels/{novel_id}/runs` 支持作品内 `limit` / `role` / `task` / `status` 查询。`status` 固定为 `ok`、`fallback`、`parse_error`，非法值必须返回 `400 Bad Request`，`summary` 按筛选后的 runs 计算。
 
 SSE API：
 

@@ -67,6 +67,7 @@ API smoke test 已覆盖：
 - `GET /api/novels/{novel_id}/export/markdown`
 - `PUT /api/novels/{novel_id}/chapters/{chapter_index}/edit`
 - `GET /api/runs?limit=20&novel_id=<novel_id>&role=writer&task=generate_chapter&status=ok`
+- `GET /api/runs/{run_id}` 和兼容别名 `GET /api/agent-runs/{run_id}`
 - `GET /api/novels/{novel_id}/runs?limit=50`
 - `GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&status=ok`
 - CORS preflight
