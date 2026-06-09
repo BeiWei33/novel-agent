@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { NovelDetail } from "../../types/domain";
+import type { Fact, NovelDetail } from "../../types/domain";
 import { Tabs } from "../../components/ui/Tabs";
 import { Badge } from "../../components/ui/Badge";
 import { Section } from "../../components/ui/Section";
@@ -152,24 +152,38 @@ function OutlineView({ detail }: { detail: NovelDetail }) {
 }
 
 function FactsView({ detail }: { detail: NovelDetail }) {
+  const facts = [...detail.facts].sort((left, right) => right.importance - left.importance);
+  if (facts.length === 0) {
+    return (
+      <div className="border-t border-line p-4 text-sm text-slate-500">
+        暂无事实记录。生成章节后，Continuity Agent 会提取可追踪事实。
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-[760px] w-full border-collapse text-sm">
+      <table className="min-w-[860px] w-full border-collapse text-sm">
         <thead className="table-head">
           <tr>
             <th className="px-4 py-3">主体</th>
             <th className="px-3 py-3">关系</th>
-            <th className="px-3 py-3">客体</th>
-            <th className="px-3 py-3 text-right">重要性</th>
+            <th className="px-3 py-3">内容</th>
+            <th className="px-3 py-3">重要度</th>
+            <th className="px-4 py-3">来源</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-line">
-          {detail.facts.map((fact) => (
+          {facts.map((fact) => (
             <tr key={fact.id}>
               <td className="px-4 py-3 font-medium">{fact.subject}</td>
               <td className="px-3 py-3 text-slate-600">{fact.predicate}</td>
               <td className="px-3 py-3 text-slate-600">{fact.object}</td>
-              <td className="px-3 py-3 text-right tabular-nums">{fact.importance}</td>
+              <td className="px-3 py-3">
+                <Badge tone={factImportanceTone(fact.importance)}>{factImportanceLabel(fact.importance)}</Badge>
+                <span className="ml-2 text-xs tabular-nums text-slate-500">{fact.importance}</span>
+              </td>
+              <td className="px-4 py-3 text-xs text-slate-500">{factSourceLabel(fact)}</td>
             </tr>
           ))}
         </tbody>
@@ -180,24 +194,42 @@ function FactsView({ detail }: { detail: NovelDetail }) {
 
 function ForeshadowingView({ detail }: { detail: NovelDetail }) {
   const rows = detail.chapter_outlines.flatMap((outline) =>
-    outline.foreshadowing.map((seed) => ({
+    outline.foreshadowing.map((seed, index) => ({
       chapter: outline.chapter_index,
       seed,
       payoff: outline.payoff,
       cliffhanger: outline.cliffhanger,
+      status: index === 0 ? "planted" : "advanced",
     })),
   );
+
+  if (rows.length === 0) {
+    return (
+      <div className="border-t border-line p-4 text-sm text-slate-500">
+        暂无伏笔记录。生成大纲或章节后，会在这里追踪埋设、推进和回收状态。
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-3 p-4 lg:grid-cols-2">
       {rows.slice(0, 12).map((row) => (
         <article key={`${row.chapter}-${row.seed}`} className="rounded-md border border-border bg-white p-4 shadow-soft">
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-2 flex items-center justify-between gap-2">
             <Badge tone="blue">第 {row.chapter} 章</Badge>
-            <span className="text-xs text-slate-500">planted</span>
+            <Badge tone={foreshadowingTone(row.status)}>{foreshadowingStatusLabel(row.status)}</Badge>
           </div>
           <h3 className="text-sm font-semibold text-ink">{row.seed}</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{row.payoff}</p>
+          <dl className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+            <div>
+              <dt className="field-label">预期回收</dt>
+              <dd>{row.payoff || "-"}</dd>
+            </div>
+            <div>
+              <dt className="field-label">章尾用途</dt>
+              <dd>{row.cliffhanger || "-"}</dd>
+            </div>
+          </dl>
         </article>
       ))}
     </div>
@@ -226,4 +258,61 @@ function List({ title, values }: { title: string; values: string[] }) {
       </div>
     </div>
   );
+}
+
+function factImportanceLabel(importance: number): string {
+  if (importance >= 4) {
+    return "核心事实";
+  }
+  if (importance >= 2) {
+    return "常规事实";
+  }
+  return "背景事实";
+}
+
+function factImportanceTone(importance: number): "teal" | "blue" | "slate" {
+  if (importance >= 4) {
+    return "teal";
+  }
+  if (importance >= 2) {
+    return "blue";
+  }
+  return "slate";
+}
+
+function factSourceLabel(fact: Fact): string {
+  if (!fact.chapter_id) {
+    return "全局设定";
+  }
+  const chapterIndex = fact.chapter_id.match(/-(\d+)$/)?.[1];
+  if (chapterIndex) {
+    return `第 ${chapterIndex} 章`;
+  }
+  return fact.chapter_id.length > 18 ? `${fact.chapter_id.slice(0, 18)}...` : fact.chapter_id;
+}
+
+function foreshadowingStatusLabel(status: string): string {
+  if (status === "advanced") {
+    return "推进";
+  }
+  if (status === "paid_off") {
+    return "已回收";
+  }
+  if (status === "contradicted") {
+    return "冲突";
+  }
+  return "已埋下";
+}
+
+function foreshadowingTone(status: string): "teal" | "amber" | "rose" | "slate" {
+  if (status === "paid_off") {
+    return "teal";
+  }
+  if (status === "advanced") {
+    return "amber";
+  }
+  if (status === "contradicted") {
+    return "rose";
+  }
+  return "slate";
 }
