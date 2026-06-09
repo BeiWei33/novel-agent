@@ -318,7 +318,9 @@ export interface AgentRun {
   novel_id?: string | null;
   role: AgentRole;
   task: AgentTask;
-  provider: "smoke" | "openai" | "deepseek";
+  provider: string;
+  model?: string | null;
+  reasoning_effort?: string | null;
   status: AgentRunStatus;
   attempt?: number | null;
   duration_ms: number;

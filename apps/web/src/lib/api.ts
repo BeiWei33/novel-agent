@@ -81,6 +81,10 @@ interface FactsResponse {
   facts?: NovelDetail["facts"];
 }
 
+interface OutlineResponse {
+  outlines?: ChapterOutline[];
+}
+
 interface ChapterVersionsResponse {
   novel_id: string;
   chapter_id: string;
@@ -107,10 +111,13 @@ interface ExportMarkdownResponse {
 }
 
 interface AgentRunsResponse {
-  runs: Array<Omit<AgentRun, "provider" | "duration_ms" | "output_summary"> & {
+  runs: Array<Omit<AgentRun, "provider" | "duration_ms" | "output_summary" | "model" | "reasoning_effort"> & {
     attempt?: number | null;
     duration_ms?: number | null;
     output_summary?: string;
+    provider?: string | null;
+    model?: string | null;
+    reasoning_effort?: string | null;
     total_tokens?: number | null;
   }>;
   summary?: AgentRunStatusSummary;
@@ -357,7 +364,9 @@ function outlineFromChapter(chapter: Chapter): ChapterOutline {
 function normalizeAgentRun(run: AgentRunsResponse["runs"][number]): AgentRun {
   return {
     ...run,
-    provider: "smoke",
+    provider: run.provider ?? "unknown",
+    model: run.model ?? null,
+    reasoning_effort: run.reasoning_effort ?? null,
     attempt: run.attempt ?? null,
     duration_ms: run.duration_ms ?? 0,
     total_tokens: run.total_tokens ?? null,
@@ -813,11 +822,12 @@ export const api = {
   async getNovel(novelId: string): Promise<NovelDetail> {
     if (!useMock) {
       const payload = await request<NovelDetailResponse>(`/api/novels/${novelId}`);
-      const [biblePayload, charactersPayload, worldPayload, factsPayload] = await Promise.all([
+      const [biblePayload, charactersPayload, worldPayload, factsPayload, outlinePayload] = await Promise.all([
         requestIfAvailable<BibleResponse>(`/api/novels/${novelId}/bible`),
         requestIfAvailable<CharactersResponse>(`/api/novels/${novelId}/characters`),
         requestIfAvailable<WorldSettingResponse>(`/api/novels/${novelId}/world-settings`),
         requestIfAvailable<FactsResponse>(`/api/novels/${novelId}/facts?limit=100`),
+        requestIfAvailable<OutlineResponse>(`/api/novels/${novelId}/outline`),
       ]);
       const chapters = payload.chapters ?? [];
       return {
@@ -825,7 +835,7 @@ export const api = {
         bible: biblePayload?.bible ?? payload.bible ?? emptyBible(payload.novel),
         characters: charactersPayload?.characters ?? payload.characters ?? [],
         world_setting: worldPayload?.world_setting ?? payload.world_setting ?? emptyWorldSetting(),
-        chapter_outlines: chapters.map(outlineFromChapter),
+        chapter_outlines: outlinePayload?.outlines ?? chapters.map(outlineFromChapter),
         facts: factsPayload?.facts ?? payload.facts ?? [],
       };
     }

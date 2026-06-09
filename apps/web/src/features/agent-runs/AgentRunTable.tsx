@@ -14,7 +14,7 @@ export function AgentRunTable({
 }) {
   return (
     <div className="overflow-x-auto bg-white">
-      <table className="min-w-[980px] w-full border-collapse text-sm">
+      <table className="min-w-[1060px] w-full border-collapse text-sm">
         <thead className="table-head">
           <tr>
             <th className="px-4 py-3">运行时间</th>
@@ -43,7 +43,10 @@ export function AgentRunTable({
                 <div className="font-medium">{agentRoleLabels[run.role]}</div>
                 <div className="text-xs text-slate-500">{agentTaskLabels[run.task]}</div>
               </td>
-              <td className="px-3 py-3">{run.provider}</td>
+              <td className="px-3 py-3">
+                <div className="font-medium">{run.provider}</div>
+                <div className="text-xs text-slate-500">{modelLabel(run)}</div>
+              </td>
               <td className="px-3 py-3">
                 <Badge tone={run.status === "ok" ? "teal" : run.status === "running" ? "blue" : "rose"}>{run.status}</Badge>
               </td>
@@ -60,4 +63,9 @@ export function AgentRunTable({
       </table>
     </div>
   );
+}
+
+function modelLabel(run: AgentRun): string {
+  const model = run.model ?? "-";
+  return run.reasoning_effort ? `${model} / ${run.reasoning_effort}` : model;
 }
