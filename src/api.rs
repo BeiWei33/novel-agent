@@ -8,7 +8,7 @@ use axum::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
     },
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use futures_util::{stream, Stream};
@@ -50,6 +50,10 @@ pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
         .route(
             "/api/novels/{novel_id}/chapters/{chapter_index}",
             get(get_chapter),
+        )
+        .route(
+            "/api/novels/{novel_id}/chapters/{chapter_index}/edit",
+            put(save_chapter_edit),
         )
         .route(
             "/api/novels/{novel_id}/chapters/{chapter_index}/write",
@@ -390,6 +394,25 @@ async fn get_chapter(
     let novel_id = NovelId::from(novel_id);
     let chapter = find_chapter(&state.storage, &novel_id, chapter_index).await?;
     Ok(Json(ChapterResponse { chapter }))
+}
+
+async fn save_chapter_edit(
+    State(state): State<ApiState>,
+    Path((novel_id, chapter_index)): Path<(String, u32)>,
+    Json(request): Json<ManualEditChapterRequest>,
+) -> Result<Json<ChapterDraftResponse>, ApiError> {
+    let novel_id = NovelId::from(novel_id);
+    let workflow = ChapterGenerationWorkflow::new(&state.storage, state.model.clone());
+    let draft = workflow
+        .save_manual_edit(
+            &novel_id,
+            chapter_index,
+            request.title,
+            request.content,
+            request.summary,
+        )
+        .await?;
+    Ok(Json(ChapterDraftResponse { draft }))
 }
 
 async fn write_chapter(
@@ -1353,6 +1376,13 @@ struct OutlineRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ManualEditChapterRequest {
+    title: Option<String>,
+    content: String,
+    summary: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct BatchWriteChaptersRequest {
     chapter_start: u32,
     chapter_end: u32,
@@ -1633,6 +1663,77 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(review_response.status(), StatusCode::OK);
+
+        let manual_content = "人工编辑新增：主角在雨夜重新校准目标，并把旧债线索压进下一章。";
+        let manual_edit_response = app
+            .clone()
+            .oneshot(json_request(
+                "PUT",
+                &format!("/api/novels/{novel_id}/chapters/1/edit"),
+                json!({
+                    "title": "第一章 人工修订",
+                    "content": manual_content,
+                    "summary": "人工保存后补强目标和伏笔"
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(manual_edit_response.status(), StatusCode::OK);
+        let manual_edit_json = response_json(manual_edit_response).await;
+        assert_eq!(
+            manual_edit_json["draft"]["title"].as_str(),
+            Some("第一章 人工修订")
+        );
+        assert_eq!(
+            manual_edit_json["draft"]["content"].as_str(),
+            Some(manual_content)
+        );
+        assert_eq!(manual_edit_json["draft"]["version"].as_u64(), Some(2));
+
+        let edited_chapter_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/api/novels/{novel_id}/chapters/1"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(edited_chapter_response.status(), StatusCode::OK);
+        let edited_chapter_json = response_json(edited_chapter_response).await;
+        assert_eq!(edited_chapter_json["chapter"]["version"].as_u64(), Some(2));
+        assert_eq!(
+            edited_chapter_json["chapter"]["content"].as_str(),
+            Some(manual_content)
+        );
+
+        let versions_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/api/novels/{novel_id}/chapters/1/versions"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(versions_response.status(), StatusCode::OK);
+        let versions_json = response_json(versions_response).await;
+        assert!(versions_json["versions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|version| version.as_u64() == Some(2)));
+
+        let empty_manual_edit_response = app
+            .clone()
+            .oneshot(json_request(
+                "PUT",
+                &format!("/api/novels/{novel_id}/chapters/1/edit"),
+                json!({
+                    "content": "   "
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(empty_manual_edit_response.status(), StatusCode::BAD_REQUEST);
 
         let stream_response = app
             .clone()

@@ -124,8 +124,9 @@ REST API：
 
 ```text
 serve --bind 127.0.0.1:3001 -> docs/API.md 中的 /api/novels/... 路径
-```
+PUT /api/novels/{novel_id}/chapters/{chapter_index}/edit
 GET /api/runs?limit=<n>&novel_id=<novel_id>&role=<role>&task=<task>&status=<status>
+```
 
 REST Jobs API：
 
@@ -149,6 +150,7 @@ POST /api/jobs/{job_id}/cancel
 `cancel` 只接受 `queued` / `running` 源任务，并把任务标记为终态 `cancelled`；后续后台完成或失败写回不得覆盖取消终态。
 批量章节写作 job 路径为 `POST /api/novels/{novel_id}/chapters/write/jobs`，请求字段固定为 `chapter_start` / `chapter_end`。该 job 的 `kind` 为 `write_chapters`，`chapter_index` 为 `null`，`progress_total` 为章节数量，`payload` 保存 `chapter_start`、`chapter_end` 和 `chapter_indexes`，成功 `result` 固定包含 `chapter_start`、`chapter_end` 和 `drafts`。批量写作按章节顺序复用单章 workflow，任一章节完成后推进 `progress_current`；任一章节失败则 job 进入 `failed` 并保留当前进度，已保存章节保留。
 `GET /api/novels/{novel_id}/facts` 返回作品事实列表，支持 `limit`；`GET /api/novels/{novel_id}/chapters/{chapter_index}/continuity` 返回该章节最新连续性报告，报告内容保持 Continuity Agent 结构化 JSON。
+`PUT /api/novels/{novel_id}/chapters/{chapter_index}/edit` 接受 `title?` / `content` / `summary?`，返回 `{ "draft": {} }`；`content` 不能为空。该接口复用人工 `edit` workflow，只保存新章节版本，不调用 Agent、不生成 `agent_runs`、不自动刷新 facts。
 `GET /api/runs` 支持全局 AgentRun 查询，可选 `novel_id` / `role` / `task` / `status` / `limit`；`GET /api/novels/{novel_id}/runs` 支持作品内 `limit` / `role` / `task` / `status` 查询。`status` 固定为 `ok`、`fallback`、`parse_error`，非法值必须返回 `400 Bad Request`，`summary` 按筛选后的 runs 计算。
 
 SSE API：
@@ -225,8 +227,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepse
 - `provider = "openai"` 已支持 `OPENAI_BASE_URL` 指向本地 OpenAI-compatible 代理；`reasoning_effort` 可配置为 `xhigh`。
 - `ModelClient::complete_stream` 已提供流式 chunks 接口，`write/rewrite --stream` 已支持正文分块输出。
 - `runs` CLI 已可查看最近 AgentRun，展示角色、任务、尝试次数、状态、耗时和 token；`--summary` 会输出状态、耗时和 token 汇总，`--fail-on-bad-status` 会在存在 fallback 或 parse_error 时返回失败；真实 demo 默认检查最近 80 条运行记录。
-- `serve` CLI 已可启动本地 REST API；API smoke test 覆盖作品创建、列表、章节生成、审稿、SSE、后台任务、Markdown 导出、CORS preflight 和 AgentRun 查询。
-- `scripts/api_demo.ps1` 已可启动临时 API 服务并调用 CORS、作品创建、章节生成、审稿、SSE、后台任务、Markdown 导出和 AgentRun 查询。
+- `serve` CLI 已可启动本地 REST API；API smoke test 覆盖作品创建、列表、章节生成、人工保存、审稿、SSE、后台任务、Markdown 导出、CORS preflight 和 AgentRun 查询。
+- `scripts/api_demo.ps1` 已可启动临时 API 服务并调用 CORS、作品创建、章节生成、人工保存、审稿、SSE、后台任务、Markdown 导出和 AgentRun 查询。
 - `versions` CLI 已可查看章节版本快照，并输出基础版本对比。
 - `edit` CLI 已可从本地文件保存人工编辑稿为新版本，并可继续用 `versions` 对比、用 `review` 复审。
 - `scripts/mvp_demo.ps1 -UseRealModel` 已具备 key preflight 和 `runs --fail-on-bad-status` 坏状态检测。

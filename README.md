@@ -17,6 +17,7 @@
 - 支持 `write --stream` 和 `rewrite --stream` 将已生成正文分块输出到终端。
 - 支持 `versions` 查看章节版本快照并做基础对比。
 - 支持 `edit` 从本地文件保存人工编辑稿为新的章节版本。
+- 支持通过 REST API 保存人工编辑稿为新的章节版本，便于 Web 编辑器真实模式落库。
 - 支持 Plot Agent 分批生成大纲，`new --outline-batch-size` 和 `outline --batch-size` 可降低真实模型长 JSON 截断风险。
 - 支持 `serve` 启动本地 REST API，给 Web 工作台提供作品、章节、版本、审稿、导出、SSE、后台任务和 AgentRun 接口。
 - 支持通过 API 查询作品 facts 和章节最新连续性报告，便于工作台展示伏笔/事实表和连续性侧栏。

@@ -257,6 +257,23 @@ try {
         throw "Continuity API did not return latest report facts."
     }
     Invoke-ApiJson "review chapter" "Post" "/api/novels/$NovelId/chapters/1/review" | Out-Null
+    $manualEditContent = "Manual edit update: the protagonist resets the goal and carries the debt clue into the next chapter."
+    $manualEditBody = @{
+        title = "Chapter 1 Manual Revision"
+        content = $manualEditContent
+        summary = "Manual save strengthens the goal and foreshadowing."
+    }
+    $manualEdit = Invoke-ApiJson -Name "manual edit chapter" -Method "Put" -Path "/api/novels/$NovelId/chapters/1/edit" -Body $manualEditBody
+    if ($manualEdit.draft.version -ne 2) {
+        throw "Manual edit should save chapter version 2, got version=$($manualEdit.draft.version)."
+    }
+    if ($manualEdit.draft.content -ne $manualEditContent) {
+        throw "Manual edit API did not return saved content."
+    }
+    $manualVersions = Invoke-ApiJson "manual edit versions" "Get" "/api/novels/$NovelId/chapters/1/versions"
+    if (-not ($manualVersions.versions -contains 2)) {
+        throw "Manual edit version 2 was not returned by versions API."
+    }
 
     $sse = Invoke-ApiText "write stream" "Post" "/api/novels/$NovelId/chapters/2/write/stream"
     if ($sse.Content -notmatch "event: completed") {

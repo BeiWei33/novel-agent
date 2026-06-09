@@ -326,6 +326,32 @@ event: completed
 data: {"operation":"write","draft":{}}
 ```
 
+人工保存章节：
+
+```http
+PUT /api/novels/{novel_id}/chapters/{chapter_index}/edit
+```
+
+请求：
+
+```json
+{
+  "title": "第一章 人工修订",
+  "content": "人工编辑后的章节正文",
+  "summary": "人工保存后补强目标和伏笔"
+}
+```
+
+`title` 和 `summary` 可省略；`content` 不能为空，否则返回 `400 Bad Request`。该接口不调用 Agent、不生成 `agent_runs`、不自动刷新 facts；它会保存新的章节版本，并清空旧审稿分数，等待后续复审。
+
+响应：
+
+```json
+{
+  "draft": {}
+}
+```
+
 审稿：
 
 ```http

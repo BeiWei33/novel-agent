@@ -2099,3 +2099,40 @@ agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 to
 当前状态：
 
 - Web 工作台可直接通过 `GET /api/runs` 构建全局运行面板，也可继续通过作品内 runs 接口查看单作品运行记录。
+
+## 54. 开发者 A 第三十八轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P1 / C-P0-2：新增 `PUT /api/novels/{novel_id}/chapters/{chapter_index}/edit`，供 Web 编辑器真实模式保存人工编辑稿。
+- A-P1：人工保存接口请求体固定为 `title?` / `content` / `summary?`，响应复用 `{ "draft": {} }`；空 `content` 返回 `400 Bad Request`。
+- A-P1：接口复用 `ChapterGenerationWorkflow::save_manual_edit`，只保存新的 `ChapterDraft` / `chapter_versions`，不调用 Agent、不生成 `agent_runs`、不自动刷新 facts。
+- A-P1：API smoke test 覆盖人工保存、版本递增、章节最新内容读取、版本列表包含人工版本和空内容 400。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 和 `scripts/api_demo.ps1` 已同步人工保存章节接口。
+
+验证结果：
+
+```text
+rustfmt --edition 2024 src\api.rs
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test api_can_create_and_read_smoke_project
+1 passed
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 15 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+manual edit chapter / manual edit versions observed
+agent_run_total=21
+```
+
+当前状态：
+
+- 后端已开放 Web 人工保存章节入口；C 侧真实 API 客户端可将 `saveChapterContent` 对接到 `PUT /api/novels/{novel_id}/chapters/{chapter_index}/edit`。

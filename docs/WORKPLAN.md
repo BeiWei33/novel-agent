@@ -83,7 +83,7 @@ ChapterVersion
 - 已提供 facts 和 continuity report 只读 API
 - 已提供 AgentRun API
 - 已提供新建小说 API
-- 已提供写章节、审稿、重写 API
+- 已提供写章节、人工保存、审稿、重写 API
 - 已给 C 提供 OpenAPI 风格接口说明：`docs/API.md`
 
 优先级 P1：
