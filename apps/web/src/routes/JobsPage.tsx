@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
@@ -16,16 +16,48 @@ import { formatDateTime, jobKindLabels, jobStatusLabels } from "../lib/format";
 import type { ApiJob, ApiJobKind, ApiJobStatus } from "../types/domain";
 
 const jobLimit = 50;
+const jobStatusValues: ApiJobStatus[] = ["queued", "running", "succeeded", "failed", "cancelled"];
+const jobKindValues: ApiJobKind[] = ["create_novel", "write_chapter", "write_chapters", "review_chapter", "rewrite_chapter"];
 
 export function JobsPage() {
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<ApiJobStatus | "all">("all");
-  const [kindFilter, setKindFilter] = useState<ApiJobKind | "all">("all");
-  const [novelIdFilter, setNovelIdFilter] = useState("");
-  const [sourceJobIdFilter, setSourceJobIdFilter] = useState("");
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [statusFilter, setStatusFilter] = useState<ApiJobStatus | "all">(() => jobStatusParam(searchParams.get("status")));
+  const [kindFilter, setKindFilter] = useState<ApiJobKind | "all">(() => jobKindParam(searchParams.get("kind")));
+  const [novelIdFilter, setNovelIdFilter] = useState(() => trimmedParam(searchParams.get("novel_id")));
+  const [sourceJobIdFilter, setSourceJobIdFilter] = useState(() => trimmedParam(searchParams.get("source_job_id")));
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(() => jobIdParam(searchParams.get("job_id")));
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
   const [cancelMessage, setCancelMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setStatusFilter(jobStatusParam(searchParams.get("status")));
+    setKindFilter(jobKindParam(searchParams.get("kind")));
+    setNovelIdFilter(trimmedParam(searchParams.get("novel_id")));
+    setSourceJobIdFilter(trimmedParam(searchParams.get("source_job_id")));
+    setSelectedJobId(jobIdParam(searchParams.get("job_id")));
+  }, [searchParams]);
+
+  function updateSearch(patch: Partial<JobSearchPatch>) {
+    const next = new URLSearchParams(searchParams);
+    if (patch.status !== undefined) {
+      setOptionalParam(next, "status", patch.status !== "all" ? patch.status : null);
+    }
+    if (patch.kind !== undefined) {
+      setOptionalParam(next, "kind", patch.kind !== "all" ? patch.kind : null);
+    }
+    if (patch.novelId !== undefined) {
+      setOptionalParam(next, "novel_id", patch.novelId);
+    }
+    if (patch.sourceJobId !== undefined) {
+      setOptionalParam(next, "source_job_id", patch.sourceJobId);
+    }
+    if (patch.jobId !== undefined) {
+      setOptionalParam(next, "job_id", patch.jobId);
+    }
+    setSearchParams(next, { replace: true });
+  }
+
   const jobOptions = useMemo<JobListOptions>(
     () => ({
       limit: jobLimit,
@@ -47,6 +79,7 @@ export function JobsPage() {
     onSuccess: (job) => {
       setStatusFilter("all");
       setSelectedJobId(job.id);
+      updateSearch({ status: "all", jobId: job.id });
       setRetryMessage(`已创建重试任务 ${job.id}`);
       setCancelMessage(null);
       queryClient.setQueryData<ApiJob[]>(queryKeys.jobs({ ...jobOptions, status: "all" }), (current) => [
@@ -61,6 +94,7 @@ export function JobsPage() {
     onSuccess: (job) => {
       setStatusFilter("all");
       setSelectedJobId(job.id);
+      updateSearch({ status: "all", jobId: job.id });
       setCancelMessage(`已取消任务 ${job.id}`);
       setRetryMessage(null);
       queryClient.setQueryData<ApiJob[]>(queryKeys.jobs({ ...jobOptions, status: "all" }), (current) => {
@@ -136,20 +170,26 @@ export function JobsPage() {
             sourceJobIdFilter={sourceJobIdFilter}
             isRefreshing={jobsQuery.isFetching}
             onStatusChange={(value) => {
-              setStatusFilter(value);
+              const nextStatus = value as ApiJobStatus | "all";
+              setStatusFilter(nextStatus);
               setSelectedJobId(null);
+              updateSearch({ status: nextStatus, jobId: null });
             }}
             onKindChange={(value) => {
-              setKindFilter(value);
+              const nextKind = value as ApiJobKind | "all";
+              setKindFilter(nextKind);
               setSelectedJobId(null);
+              updateSearch({ kind: nextKind, jobId: null });
             }}
             onNovelIdChange={(value) => {
               setNovelIdFilter(value);
               setSelectedJobId(null);
+              updateSearch({ novelId: value, jobId: null });
             }}
             onSourceJobIdChange={(value) => {
               setSourceJobIdFilter(value);
               setSelectedJobId(null);
+              updateSearch({ sourceJobId: value, jobId: null });
             }}
             onRefresh={() => void jobsQuery.refetch()}
             onReset={() => {
@@ -158,6 +198,7 @@ export function JobsPage() {
               setNovelIdFilter("");
               setSourceJobIdFilter("");
               setSelectedJobId(null);
+              setSearchParams({}, { replace: true });
             }}
           />
           <div className="grid min-h-[620px] grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -167,7 +208,10 @@ export function JobsPage() {
                 selectedJobId={activeJob?.id}
                 retryingJobId={retryingJobId}
                 cancelingJobId={cancelingJobId}
-                onSelectJob={(job) => setSelectedJobId(job.id)}
+                onSelectJob={(job) => {
+                  setSelectedJobId(job.id);
+                  updateSearch({ jobId: job.id });
+                }}
                 onRetryJob={(job) => {
                   setRetryMessage(null);
                   setCancelMessage(null);
@@ -205,6 +249,45 @@ export function JobsPage() {
       ) : null}
     </div>
   );
+}
+
+interface JobSearchPatch {
+  status: ApiJobStatus | "all";
+  kind: ApiJobKind | "all";
+  novelId: string | null;
+  sourceJobId: string | null;
+  jobId: string | null;
+}
+
+function jobStatusParam(value: string | null): ApiJobStatus | "all" {
+  if (!value || value === "all") {
+    return "all";
+  }
+  return jobStatusValues.includes(value as ApiJobStatus) ? (value as ApiJobStatus) : "all";
+}
+
+function jobKindParam(value: string | null): ApiJobKind | "all" {
+  if (!value || value === "all") {
+    return "all";
+  }
+  return jobKindValues.includes(value as ApiJobKind) ? (value as ApiJobKind) : "all";
+}
+
+function jobIdParam(value: string | null): string | null {
+  return trimmedParam(value) || null;
+}
+
+function trimmedParam(value: string | null): string {
+  return value?.trim() ?? "";
+}
+
+function setOptionalParam(params: URLSearchParams, key: string, value: string | null | undefined): void {
+  const trimmed = value?.trim();
+  if (trimmed) {
+    params.set(key, trimmed);
+  } else {
+    params.delete(key);
+  }
 }
 
 function JobFilters({

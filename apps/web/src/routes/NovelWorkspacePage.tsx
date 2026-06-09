@@ -27,6 +27,7 @@ export function NovelWorkspacePage() {
     chapterIndex?: number;
   } | null>(null);
   const [queuedJobCount, setQueuedJobCount] = useState(0);
+  const [queuedJobsHref, setQueuedJobsHref] = useState<string | null>(null);
   const detailQuery = useQuery({
     queryKey: queryKeys.novel(novelId),
     queryFn: () => api.getNovel(novelId),
@@ -120,10 +121,12 @@ export function NovelWorkspacePage() {
       }),
     onMutate: ({ kind, chapterIndexes }) => {
       setQueuedJobCount(0);
+      setQueuedJobsHref(null);
       setJobProgress({ kind, completed: 0, total: chapterIndexes.length });
     },
-    onSuccess: async (jobs) => {
+    onSuccess: async (jobs, variables) => {
       setQueuedJobCount(jobs.length);
+      setQueuedJobsHref(jobsQueueHref(novelId, jobs[0]?.kind ?? variables.kind, jobs[0]?.id));
       setSelectedChapters(new Set());
       await queryClient.invalidateQueries({ queryKey: queryKeys.jobsRoot });
     },
@@ -310,6 +313,11 @@ export function NovelWorkspacePage() {
       {batchJobMutation.isSuccess && jobProgress ? (
         <StatusBanner tone="success" title="后台任务已提交">
           已创建 {queuedJobCount} 个后台任务，可在任务队列查看。
+          {queuedJobsHref ? (
+            <Link to={queuedJobsHref} className="ml-2 font-semibold text-teal-800 underline underline-offset-2">
+              打开任务队列
+            </Link>
+          ) : null}
         </StatusBanner>
       ) : null}
       {batchJobMutation.isError ? (
@@ -356,4 +364,12 @@ function jobKindLabel(kind: ChapterJobKind): string {
     return "返工";
   }
   return "生成";
+}
+
+function jobsQueueHref(novelId: string, kind: ApiJobKind, jobId?: string): string {
+  const params = new URLSearchParams({ novel_id: novelId, kind });
+  if (jobId) {
+    params.set("job_id", jobId);
+  }
+  return `/jobs?${params.toString()}`;
 }

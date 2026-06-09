@@ -21,9 +21,10 @@ export function NewNovelPage() {
   });
   const createJobMutation = useMutation({
     mutationFn: (input: CreateNovelInput) => api.createNovelJob(input),
-    onSuccess: async () => {
+    onSuccess: async (job) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.jobsRoot });
-      navigate("/jobs");
+      const params = new URLSearchParams({ job_id: job.id, kind: job.kind });
+      navigate(`/jobs?${params.toString()}`);
     },
   });
 
