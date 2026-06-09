@@ -251,6 +251,8 @@ export const queryKeys = {
   continuity: (novelId: string, chapterIndex: number) => ["chapter-continuity", novelId, chapterIndex] as const,
   agentRunsRoot: ["agent-runs"] as const,
   agentRuns: (options: string | AgentRunListOptions = {}) => ["agent-runs", normalizeAgentRunListOptions(options)] as const,
+  agentRunList: (options: string | AgentRunListOptions = {}) => ["agent-runs", "list", normalizeAgentRunListOptions(options)] as const,
+  agentRunReport: (options: string | AgentRunListOptions = {}) => ["agent-runs", "report", normalizeAgentRunListOptions(options)] as const,
   agentRun: (runId: string) => ["agent-run", runId] as const,
   jobsRoot: ["jobs"] as const,
   jobs: (options: JobListOptions = {}) => ["jobs", normalizeJobListOptions(options)] as const,
@@ -1060,7 +1062,7 @@ export const api = {
     }
     await sleep(760);
     const chapter = findChapter(novelId, chapterIndex);
-    const hasStrongEnding = chapter.content?.includes("账本") || chapter.content?.includes("下一场冲突");
+    const hasStrongEnding = chapter.content?.includes("第一份真实订单") || chapter.content?.includes("下一场冲突");
     const totalScore = hasStrongEnding ? 82 : 70;
     const report: ReviewReport = {
       id: `review-${chapter.id}-${Date.now()}`,

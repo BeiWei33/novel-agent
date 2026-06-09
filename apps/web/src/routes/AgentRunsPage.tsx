@@ -49,7 +49,7 @@ export function AgentRunsPage() {
     [modelFilter, novelIdFilter, providerFilter, reasoningEffortFilter, roleFilter, statusFilter, taskFilter],
   );
   const runsQuery = useQuery({
-    queryKey: queryKeys.agentRuns(runOptions),
+    queryKey: queryKeys.agentRunReport(runOptions),
     queryFn: () => api.getAgentRunReport(runOptions),
     refetchInterval: useSseSnapshots ? false : 10_000,
   });
@@ -95,7 +95,7 @@ export function AgentRunsPage() {
         await api.streamAgentRunReport(
           runOptions,
           (report) => {
-            queryClient.setQueryData(queryKeys.agentRuns(runOptions), report);
+            queryClient.setQueryData(queryKeys.agentRunReport(runOptions), report);
             setStreamState({ status: "ok", checkedAt: new Date().toISOString() });
           },
           controller.signal,

@@ -6,8 +6,8 @@ import { Badge } from "./ui/Badge";
 
 export function AgentRail() {
   const { data: runs = [] } = useQuery({
-    queryKey: queryKeys.agentRuns(),
-    queryFn: () => api.getAgentRuns(),
+    queryKey: queryKeys.agentRunList({ limit: 8 }),
+    queryFn: () => api.getAgentRuns({ limit: 8 }),
     refetchInterval: 10_000,
   });
 

@@ -21,9 +21,9 @@ export function NewNovelForm({
   isPending: boolean;
   isQueueing: boolean;
 }) {
-  const [idea, setIdea] = useState("都市重生，主角回到十八岁救回家业，并提前布局移动支付风口。");
-  const [genre, setGenre] = useState("都市重生");
-  const [targetPlatform, setTargetPlatform] = useState<TargetPlatform>("qidian");
+  const [idea, setIdea] = useState("都市重生商业文，主角回到十年前暴雨外卖站，用调度经验避开事故并拿下第一份真实订单。");
+  const [genre, setGenre] = useState("都市重生商业文");
+  const [targetPlatform, setTargetPlatform] = useState<TargetPlatform>("fanqie");
   const [targetWords, setTargetWords] = useState(1_200_000);
   const [chapterWords, setChapterWords] = useState(2600);
 

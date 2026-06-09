@@ -87,7 +87,7 @@ export function ChapterEditorPage() {
     enabled: Boolean(novelId && chapterNumber),
   });
   const runsQuery = useQuery({
-    queryKey: queryKeys.agentRuns(novelId),
+    queryKey: queryKeys.agentRunList(novelId),
     queryFn: () => api.getAgentRuns(novelId),
     enabled: Boolean(novelId),
     refetchInterval: 10_000,
