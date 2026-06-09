@@ -142,6 +142,9 @@ export interface AgentRunListOptions {
   role?: AgentRole | "all";
   task?: AgentTask | "all";
   status?: AgentRunStatus | "all";
+  provider?: AgentRun["provider"] | "all";
+  model?: string | "all";
+  reasoningEffort?: string | "all";
 }
 
 interface NormalizedAgentRunListOptions {
@@ -150,6 +153,9 @@ interface NormalizedAgentRunListOptions {
   role?: AgentRole;
   task?: AgentTask;
   status?: AgentRunStatus;
+  provider?: string;
+  model?: string;
+  reasoningEffort?: string;
 }
 
 function agentRunListOptions(options: string | AgentRunListOptions = {}): AgentRunListOptions {
@@ -173,6 +179,18 @@ function normalizeAgentRunListOptions(options: string | AgentRunListOptions = {}
   }
   if (input.status && input.status !== "all") {
     normalized.status = input.status;
+  }
+  const provider = input.provider?.trim();
+  if (provider && provider !== "all") {
+    normalized.provider = provider;
+  }
+  const model = input.model?.trim();
+  if (model && model !== "all") {
+    normalized.model = model;
+  }
+  const reasoningEffort = input.reasoningEffort?.trim();
+  if (reasoningEffort && reasoningEffort !== "all") {
+    normalized.reasoningEffort = reasoningEffort;
   }
   return normalized;
 }
@@ -455,6 +473,15 @@ function agentRunParams(filters: NormalizedAgentRunListOptions, limit = filters.
   if (filters.status && filters.status !== "running") {
     params.set("status", filters.status);
   }
+  if (filters.provider) {
+    params.set("provider", filters.provider);
+  }
+  if (filters.model) {
+    params.set("model", filters.model);
+  }
+  if (filters.reasoningEffort) {
+    params.set("reasoning_effort", filters.reasoningEffort);
+  }
   return params.toString();
 }
 
@@ -469,6 +496,15 @@ function matchesAgentRunFilters(run: AgentRun, filters: NormalizedAgentRunListOp
     return false;
   }
   if (filters.status && run.status !== filters.status) {
+    return false;
+  }
+  if (filters.provider && run.provider !== filters.provider) {
+    return false;
+  }
+  if (filters.model && run.model !== filters.model) {
+    return false;
+  }
+  if (filters.reasoningEffort && run.reasoning_effort !== filters.reasoningEffort) {
     return false;
   }
   return true;
