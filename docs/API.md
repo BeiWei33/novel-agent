@@ -516,6 +516,7 @@ GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&statu
       "attempt": 1,
       "duration_ms": 12,
       "total_tokens": 1200,
+      "output_summary": "生成第 1 章《旧账重开》，2600 字。",
       "structured": {},
       "raw_text": "...",
       "raw_notes": "...",

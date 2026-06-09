@@ -1618,6 +1618,7 @@ struct AgentRunResponse {
     attempt: Option<u64>,
     duration_ms: Option<u64>,
     total_tokens: Option<u64>,
+    output_summary: String,
     structured: Value,
     raw_text: String,
     raw_notes: String,
@@ -1636,6 +1637,7 @@ impl AgentRunResponse {
             attempt: run.attempt(),
             duration_ms: run.duration_ms(),
             total_tokens: run.total_tokens(),
+            output_summary: summarize_agent_run(run),
             structured: run.structured.clone(),
             raw_text: run.raw_text.clone(),
             raw_notes: run.raw_notes.clone(),
@@ -1643,6 +1645,104 @@ impl AgentRunResponse {
             created_at: run.created_at.to_rfc3339(),
         }
     }
+}
+
+fn summarize_agent_run(run: &AgentRunRecord) -> String {
+    if let Some(parse_error) = &run.parse_error {
+        return format!("运行失败：{parse_error}");
+    }
+
+    if let Some(draft) = run
+        .structured
+        .get("chapter_draft")
+        .and_then(Value::as_object)
+    {
+        let chapter_index = draft
+            .get("chapter_index")
+            .and_then(Value::as_u64)
+            .map(|index| format!("第 {index} 章"))
+            .unwrap_or_else(|| "章节".to_string());
+        let title = draft.get("title").and_then(Value::as_str).unwrap_or("初稿");
+        let words = draft
+            .get("word_count")
+            .and_then(Value::as_u64)
+            .map(|count| format!("，{count} 字"))
+            .unwrap_or_default();
+        return format!("生成{chapter_index}《{title}》{words}。");
+    }
+
+    if let Some(report) = run
+        .structured
+        .get("review_report")
+        .and_then(Value::as_object)
+    {
+        let score = report
+            .get("total_score")
+            .and_then(Value::as_u64)
+            .map(|score| format!("{score} 分"))
+            .unwrap_or_else(|| "未评分".to_string());
+        let verdict = report
+            .get("passed")
+            .and_then(Value::as_bool)
+            .map(|passed| if passed { "通过" } else { "需要返工" })
+            .unwrap_or("已完成");
+        return format!("审稿完成：{score}，{verdict}。");
+    }
+
+    if let Some(report) = run
+        .structured
+        .get("continuity_report")
+        .and_then(Value::as_object)
+    {
+        let facts = report
+            .get("new_facts")
+            .and_then(Value::as_array)
+            .map(|facts| facts.len())
+            .unwrap_or(0);
+        let verdict = report
+            .get("passed")
+            .and_then(Value::as_bool)
+            .map(|passed| if passed { "通过" } else { "发现问题" })
+            .unwrap_or("已记录");
+        return format!("连续性检查{verdict}，新增 {facts} 条事实。");
+    }
+
+    if let Some(style) = run
+        .structured
+        .get("styled_chapter")
+        .and_then(Value::as_object)
+    {
+        let title = style.get("title").and_then(Value::as_str).unwrap_or("章节");
+        return format!("风格润色完成：《{title}》。");
+    }
+
+    if let Some(outlines) = run
+        .structured
+        .get("chapter_outlines")
+        .and_then(Value::as_array)
+    {
+        return format!("生成 {} 章大纲。", outlines.len());
+    }
+
+    if let Some(characters) = run
+        .structured
+        .get("character_cards")
+        .and_then(Value::as_array)
+    {
+        return format!("生成 {} 张人物卡。", characters.len());
+    }
+
+    if run.structured.get("world_setting").is_some() {
+        return "生成世界观设定。".to_string();
+    }
+
+    if run.structured.get("novel_bible").is_some()
+        || run.structured.get("market_analysis").is_some()
+    {
+        return "生成新书定位和小说圣经。".to_string();
+    }
+
+    format!("{} / {} 已记录。", run.role, run.task)
 }
 
 #[cfg(test)]
@@ -2466,6 +2566,14 @@ mod tests {
         assert_eq!(runs_json["summary"]["parse_error"].as_u64(), Some(0));
         assert!(runs_json["summary"]["tokenized_runs"].as_u64().unwrap() > 0);
         assert!(runs_json["summary"]["total_tokens"].as_u64().unwrap() > 0);
+        assert!(runs_json["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|run| run["output_summary"]
+                .as_str()
+                .map(|summary| !summary.is_empty())
+                .unwrap_or(false)));
 
         let filtered_runs_response = app
             .clone()

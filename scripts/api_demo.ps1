@@ -449,6 +449,10 @@ try {
     if ($runs.summary.fallback -gt 0 -or $runs.summary.parse_error -gt 0) {
         throw "API demo observed failing AgentRun status."
     }
+    $missingRunSummary = $runs.runs | Where-Object { [string]::IsNullOrWhiteSpace($_.output_summary) } | Select-Object -First 1
+    if ($null -ne $missingRunSummary) {
+        throw "AgentRun API returned a run without output_summary."
+    }
     $writerRuns = Invoke-ApiJson "filtered agent runs" "Get" "/api/novels/$NovelId/runs?limit=20&role=writer&task=generate_chapter&status=ok"
     if ($writerRuns.runs.Count -lt 1) {
         throw "Filtered AgentRun API returned no writer generate_chapter runs."
