@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentRole, AgentRun, AgentRunStatus, AgentRunStatusSummary, AgentTask } from "../types/domain";
 import { api, apiConfig, queryKeys } from "../lib/api";
@@ -13,15 +14,20 @@ import { StatusBanner } from "../components/StatusBanner";
 import { EmptyState } from "../components/EmptyState";
 import { Button } from "../components/ui/Button";
 
+const agentRunStatusValues: AgentRunStatus[] = ["ok", "fallback", "parse_error", "running"];
+const agentRoleValues = Object.keys(agentRoleLabels) as AgentRole[];
+const agentTaskValues = Object.keys(agentTaskLabels) as AgentTask[];
+
 export function AgentRunsPage() {
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<AgentRunStatus | "all">("all");
-  const [roleFilter, setRoleFilter] = useState<AgentRole | "all">("all");
-  const [taskFilter, setTaskFilter] = useState<AgentTask | "all">("all");
-  const [providerFilter, setProviderFilter] = useState<AgentRun["provider"] | "all">("all");
-  const [modelFilter, setModelFilter] = useState<string | "all">("all");
-  const [reasoningEffortFilter, setReasoningEffortFilter] = useState<string | "all">("all");
-  const [novelIdFilter, setNovelIdFilter] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [statusFilter, setStatusFilter] = useState<AgentRunStatus | "all">(() => statusParam(searchParams.get("status")));
+  const [roleFilter, setRoleFilter] = useState<AgentRole | "all">(() => roleParam(searchParams.get("role")));
+  const [taskFilter, setTaskFilter] = useState<AgentTask | "all">(() => taskParam(searchParams.get("task")));
+  const [providerFilter, setProviderFilter] = useState<AgentRun["provider"] | "all">(() => stringParam(searchParams.get("provider")));
+  const [modelFilter, setModelFilter] = useState<string | "all">(() => stringParam(searchParams.get("model")));
+  const [reasoningEffortFilter, setReasoningEffortFilter] = useState<string | "all">(() => stringParam(searchParams.get("reasoning_effort")));
+  const [novelIdFilter, setNovelIdFilter] = useState(() => searchParams.get("novel_id")?.trim() ?? "");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [streamState, setStreamState] = useState<{
     status: "idle" | "refreshing" | "ok" | "error";
@@ -47,6 +53,34 @@ export function AgentRunsPage() {
     queryFn: () => api.getAgentRunReport(runOptions),
     refetchInterval: useSseSnapshots ? false : 10_000,
   });
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams();
+    if (statusFilter !== "all") {
+      nextParams.set("status", statusFilter);
+    }
+    if (roleFilter !== "all") {
+      nextParams.set("role", roleFilter);
+    }
+    if (taskFilter !== "all") {
+      nextParams.set("task", taskFilter);
+    }
+    if (providerFilter !== "all") {
+      nextParams.set("provider", providerFilter);
+    }
+    if (modelFilter !== "all") {
+      nextParams.set("model", modelFilter);
+    }
+    if (reasoningEffortFilter !== "all") {
+      nextParams.set("reasoning_effort", reasoningEffortFilter);
+    }
+    const novelId = novelIdFilter.trim();
+    if (novelId) {
+      nextParams.set("novel_id", novelId);
+    }
+    setSearchParams(nextParams, { replace: true });
+  }, [modelFilter, novelIdFilter, providerFilter, reasoningEffortFilter, roleFilter, setSearchParams, statusFilter, taskFilter]);
+
   useEffect(() => {
     if (!useSseSnapshots) {
       setStreamState({ status: "idle" });
@@ -529,6 +563,23 @@ function formatNumber(value: number): string {
 
 function nonEmptyString(value: string | null | undefined): value is string {
   return Boolean(value);
+}
+
+function statusParam(value: string | null): AgentRunStatus | "all" {
+  return agentRunStatusValues.includes(value as AgentRunStatus) ? (value as AgentRunStatus) : "all";
+}
+
+function roleParam(value: string | null): AgentRole | "all" {
+  return agentRoleValues.includes(value as AgentRole) ? (value as AgentRole) : "all";
+}
+
+function taskParam(value: string | null): AgentTask | "all" {
+  return agentTaskValues.includes(value as AgentTask) ? (value as AgentTask) : "all";
+}
+
+function stringParam(value: string | null): string | "all" {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : "all";
 }
 
 function DetailItem({ label, value }: { label: string; value: string }) {

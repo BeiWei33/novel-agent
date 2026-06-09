@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import CodeMirror from "@uiw/react-codemirror";
@@ -7,7 +7,8 @@ import { Download, Play, RotateCcw, Save, SearchCheck, Wand2 } from "lucide-reac
 import type { Chapter, ChapterOutline, ChapterVersion } from "../types/domain";
 import type { ChapterOperation, ChapterStreamEvent } from "../types/api";
 import { api, apiConfig, queryKeys } from "../lib/api";
-import { type ChapterProgress, type ProgressKind, useWorkspaceStore } from "../lib/store";
+import { type ChapterProgress, type EditorDensity, type ProgressKind, useWorkspaceStore } from "../lib/store";
+import { cn } from "../lib/cn";
 import { agentRoleLabels, agentTaskLabels, chapterStatusLabels, clampScore, formatDateTime, formatDuration } from "../lib/format";
 import { ChapterTree } from "../features/chapters/ChapterTree";
 import { ReviewPanel } from "../features/chapters/ReviewPanel";
@@ -43,6 +44,8 @@ export function ChapterEditorPage() {
   const {
     rightPanel,
     setRightPanel,
+    editorDensity,
+    setEditorDensity,
     editorDrafts,
     setEditorDraft,
     clearEditorDraft,
@@ -182,6 +185,75 @@ export function ChapterEditorPage() {
   });
   const activeOperation = writeMutationLabel(writeMutation.isPending, reviewMutation.isPending, rewriteMutation.isPending, saveMutation.isPending);
   const operationError = mutationErrorMessage(writeMutation.error ?? reviewMutation.error ?? rewriteMutation.error ?? saveMutation.error);
+  const isMutating = writeMutation.isPending || reviewMutation.isPending || rewriteMutation.isPending || saveMutation.isPending;
+
+  const writeCurrentChapter = useCallback(() => {
+    if (!writeMutation.isPending) {
+      writeMutation.mutate();
+    }
+  }, [writeMutation]);
+
+  const reviewCurrentChapter = useCallback(() => {
+    if (!reviewMutation.isPending && editorValue) {
+      reviewMutation.mutate();
+    }
+  }, [editorValue, reviewMutation]);
+
+  const rewriteCurrentChapter = useCallback(() => {
+    if (!rewriteMutation.isPending && editorValue) {
+      rewriteMutation.mutate();
+    }
+  }, [editorValue, rewriteMutation]);
+
+  const saveCurrentDraft = useCallback(() => {
+    if (!saveMutation.isPending && editorValue.trim() && isDirty && manualSaveEnabled) {
+      saveMutation.mutate();
+    }
+  }, [editorValue, isDirty, manualSaveEnabled, saveMutation]);
+
+  useEffect(() => {
+    if (!isDirty) {
+      return;
+    }
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const hasModifier = event.ctrlKey || event.metaKey;
+      if (!hasModifier || isMutating || event.defaultPrevented) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === "s") {
+        event.preventDefault();
+        saveCurrentDraft();
+        return;
+      }
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (event.altKey) {
+          rewriteCurrentChapter();
+        } else if (event.shiftKey) {
+          reviewCurrentChapter();
+        } else {
+          writeCurrentChapter();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMutating, reviewCurrentChapter, rewriteCurrentChapter, saveCurrentDraft, writeCurrentChapter]);
 
   function exportChapter() {
     if (!chapter) {
@@ -223,21 +295,21 @@ export function ChapterEditorPage() {
         }
         actions={
           <>
-            <Button variant="secondary" onClick={() => writeMutation.mutate()} disabled={writeMutation.isPending}>
+            <Button variant="secondary" onClick={writeCurrentChapter} disabled={writeMutation.isPending}>
               <Play className="h-4 w-4" />
               {writeMutation.isPending ? "生成中" : "生成"}
             </Button>
-            <Button variant="secondary" onClick={() => reviewMutation.mutate()} disabled={reviewMutation.isPending || !editorValue}>
+            <Button variant="secondary" onClick={reviewCurrentChapter} disabled={reviewMutation.isPending || !editorValue}>
               <SearchCheck className="h-4 w-4" />
               {reviewMutation.isPending ? "审稿中" : "审稿"}
             </Button>
-            <Button variant="secondary" onClick={() => rewriteMutation.mutate()} disabled={rewriteMutation.isPending || !editorValue}>
+            <Button variant="secondary" onClick={rewriteCurrentChapter} disabled={rewriteMutation.isPending || !editorValue}>
               <Wand2 className="h-4 w-4" />
               {rewriteMutation.isPending ? "重写中" : "重写"}
             </Button>
             <Button
               variant="primary"
-              onClick={() => saveMutation.mutate()}
+              onClick={saveCurrentDraft}
               disabled={saveMutation.isPending || !editorValue.trim() || !isDirty || !manualSaveEnabled}
               title={manualSaveEnabled ? "保存人工编辑稿" : "当前模式暂不可保存"}
             >
@@ -289,6 +361,7 @@ export function ChapterEditorPage() {
               onChange={setEditorView}
             />
             <div className="flex items-center gap-2 text-xs text-slate-500">
+              <DensityToggle value={editorDensity} onChange={setEditorDensity} />
               {isDirty ? <Badge tone="amber">未保存</Badge> : <Badge tone="teal">已同步</Badge>}
               <span>{editorValue.trim().length > 0 ? `${editorValue.replace(/\s/g, "").length} 字` : "0 字"}</span>
               <Button size="sm" variant="ghost" onClick={() => clearEditorDraft(chapter.id)} disabled={!isDirty}>
@@ -297,7 +370,12 @@ export function ChapterEditorPage() {
               </Button>
             </div>
           </div>
-          <div className="h-[calc(100vh-318px)] min-h-[520px] p-3">
+          <div
+            className={cn(
+              "h-[calc(100vh-318px)] min-h-[520px] p-3",
+              editorDensity === "compact" ? "chapter-editor-compact" : "chapter-editor-comfortable",
+            )}
+          >
             {editorView === "edit" ? (
               <CodeMirror
                 value={editorValue}
@@ -371,6 +449,26 @@ export function ChapterEditorPage() {
         ) : null}
         <VersionDiffPanel versions={versionsQuery.data ?? []} />
       </Section>
+    </div>
+  );
+}
+
+function DensityToggle({ value, onChange }: { value: EditorDensity; onChange: (density: EditorDensity) => void }) {
+  return (
+    <div className="inline-flex h-8 items-center rounded-md border border-border bg-slate-50 p-1">
+      {densityOptions.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className={cn(
+            "h-6 rounded px-2 text-xs font-medium text-slate-600 transition",
+            value === option.value && "bg-white text-ink shadow-soft",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -596,3 +694,8 @@ const localProgressPlans: Record<ProgressKind, Array<{ delayMs: number; label: s
     { delayMs: 320, label: "Chapter", detail: "更新章节最新正文、字数和更新时间。" },
   ],
 };
+
+const densityOptions: Array<{ value: EditorDensity; label: string }> = [
+  { value: "comfortable", label: "舒适" },
+  { value: "compact", label: "紧凑" },
+];
