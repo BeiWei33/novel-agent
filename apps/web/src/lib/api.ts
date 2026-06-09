@@ -412,8 +412,11 @@ function normalizeAgentRunReport(payload: AgentRunsResponse, filters: Normalized
   };
 }
 
-function agentRunParams(filters: NormalizedAgentRunListOptions, limit = filters.limit): string {
+function agentRunParams(filters: NormalizedAgentRunListOptions, limit = filters.limit, includeNovelId = false): string {
   const params = new URLSearchParams({ limit: String(limit) });
+  if (includeNovelId && filters.novelId) {
+    params.set("novel_id", filters.novelId);
+  }
   if (filters.role) {
     params.set("role", filters.role);
   }
@@ -1147,6 +1150,30 @@ export const api = {
       throw new ApiError("Agent run not found", 404);
     }
     return clone(run);
+  },
+
+  async streamAgentRunReport(
+    options: string | AgentRunListOptions = {},
+    onSnapshot: (report: AgentRunReport) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const filters = normalizeAgentRunListOptions(options);
+    if (useMock) {
+      onSnapshot(await this.getAgentRunReport(options));
+      return;
+    }
+
+    const response = await fetch(`${apiBaseUrl}/api/runs/stream?${agentRunParams(filters, filters.limit, true)}`, {
+      headers: {
+        Accept: "text/event-stream",
+      },
+      signal,
+    });
+    await readServerSentEvents<AgentRunsResponse | { total: number }>(response, (data, raw) => {
+      if (raw.event === "snapshot") {
+        onSnapshot(normalizeAgentRunReport(data as AgentRunsResponse, filters));
+      }
+    });
   },
 
   async createChapterJob(novelId: string, chapterIndex: number, kind: ChapterJobKind): Promise<ApiJob> {

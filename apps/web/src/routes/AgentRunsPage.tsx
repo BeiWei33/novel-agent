@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentRole, AgentRun, AgentRunStatus, AgentRunStatusSummary, AgentTask } from "../types/domain";
-import { api, queryKeys } from "../lib/api";
+import { api, apiConfig, queryKeys } from "../lib/api";
 import type { AgentRunListOptions } from "../lib/api";
 import { agentRoleLabels, agentTaskLabels, formatDateTime, formatDuration } from "../lib/format";
 import { AgentRunTable } from "../features/agent-runs/AgentRunTable";
@@ -14,12 +14,19 @@ import { EmptyState } from "../components/EmptyState";
 import { Button } from "../components/ui/Button";
 
 export function AgentRunsPage() {
+  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<AgentRunStatus | "all">("all");
   const [roleFilter, setRoleFilter] = useState<AgentRole | "all">("all");
   const [taskFilter, setTaskFilter] = useState<AgentTask | "all">("all");
   const [providerFilter, setProviderFilter] = useState<AgentRun["provider"] | "all">("all");
   const [novelIdFilter, setNovelIdFilter] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [streamState, setStreamState] = useState<{
+    status: "idle" | "refreshing" | "ok" | "error";
+    message?: string;
+    checkedAt?: string;
+  }>({ status: "idle" });
+  const useSseSnapshots = apiConfig.sseEnabled && !apiConfig.useMock && typeof ReadableStream !== "undefined" && typeof TextDecoder !== "undefined";
   const runOptions = useMemo<AgentRunListOptions>(
     () => ({
       limit: 50,
@@ -33,8 +40,49 @@ export function AgentRunsPage() {
   const runsQuery = useQuery({
     queryKey: queryKeys.agentRuns(runOptions),
     queryFn: () => api.getAgentRunReport(runOptions),
-    refetchInterval: 10_000,
+    refetchInterval: useSseSnapshots ? false : 10_000,
   });
+  useEffect(() => {
+    if (!useSseSnapshots) {
+      setStreamState({ status: "idle" });
+      return;
+    }
+
+    const controller = new AbortController();
+    let timer: number | undefined;
+    async function refreshSnapshot() {
+      setStreamState((current) => ({ ...current, status: "refreshing" }));
+      try {
+        await api.streamAgentRunReport(
+          runOptions,
+          (report) => {
+            queryClient.setQueryData(queryKeys.agentRuns(runOptions), report);
+            setStreamState({ status: "ok", checkedAt: new Date().toISOString() });
+          },
+          controller.signal,
+        );
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setStreamState({
+            status: "error",
+            message: error instanceof Error ? error.message : "SSE 快照读取失败。",
+            checkedAt: new Date().toISOString(),
+          });
+        }
+      }
+      if (!controller.signal.aborted) {
+        timer = window.setTimeout(refreshSnapshot, 10_000);
+      }
+    }
+
+    void refreshSnapshot();
+    return () => {
+      controller.abort();
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [queryClient, runOptions, useSseSnapshots]);
   const runs = runsQuery.data?.runs ?? [];
   const trimmedNovelIdFilter = novelIdFilter.trim();
   const filteredRuns = useMemo(
@@ -74,11 +122,28 @@ export function AgentRunsPage() {
 
   return (
     <div>
-      <PageHeader title="AgentRun" meta={<span>{filteredRuns.length} / {runs.length} 条</span>} />
+      <PageHeader
+        title="AgentRun"
+        meta={
+          <>
+            <span>{filteredRuns.length} / {runs.length} 条</span>
+            {useSseSnapshots ? (
+              <Badge tone={streamState.status === "error" ? "rose" : streamState.status === "refreshing" ? "blue" : "teal"}>
+                SSE {streamState.status === "refreshing" ? "刷新中" : streamState.status === "error" ? "异常" : "快照"}
+              </Badge>
+            ) : null}
+          </>
+        }
+      />
       {runsQuery.isLoading ? <LoadingState label="读取运行记录" /> : null}
       {runsQuery.isError ? (
         <StatusBanner tone="danger" title="运行记录读取失败">
           {runsQuery.error instanceof Error ? runsQuery.error.message : "请检查 API 或 mock 数据。"}
+        </StatusBanner>
+      ) : null}
+      {streamState.status === "error" ? (
+        <StatusBanner tone="danger" title="SSE 快照刷新失败">
+          {streamState.message ?? "请检查 API 或稍后重试。"}
         </StatusBanner>
       ) : null}
       {runsQuery.data ? (
