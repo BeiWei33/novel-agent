@@ -12,6 +12,11 @@ export interface ApiClientStatus {
   manualSaveEnabled: boolean;
 }
 
+export interface ApiHealthStatus {
+  status: string;
+  checked_at: string;
+}
+
 export interface ChapterStreamEvent {
   event:
     | "queued"

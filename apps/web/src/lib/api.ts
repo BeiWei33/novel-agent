@@ -20,7 +20,7 @@ import type {
   ReviewReport,
   WorldSetting,
 } from "../types/domain";
-import type { ApiClientStatus, ChapterOperation, ChapterStreamEvent } from "../types/api";
+import type { ApiClientStatus, ApiHealthStatus, ChapterOperation, ChapterStreamEvent } from "../types/api";
 import { countWords } from "./format";
 import { createMockDatabase, makeGeneratedChapter, makeNewNovel, makeRetriedJob, makeRuntimeAgentRun } from "./mockData";
 import { readServerSentEvents, type SseMessage } from "./sse";
@@ -175,6 +175,7 @@ function normalizeJobListOptions(options: JobListOptions = {}): NormalizedJobLis
 }
 
 export const queryKeys = {
+  health: ["health"] as const,
   novels: ["novels"] as const,
   novel: (novelId: string) => ["novel", novelId] as const,
   chapters: (novelId: string) => ["chapters", novelId] as const,
@@ -635,6 +636,21 @@ export const api = {
       sseEnabled: apiConfig.sseEnabled,
       sseReady: typeof ReadableStream !== "undefined" && typeof TextDecoder !== "undefined",
       manualSaveEnabled: apiConfig.manualSaveEnabled,
+    };
+  },
+
+  async getHealth(): Promise<ApiHealthStatus> {
+    if (!useMock) {
+      const payload = await request<{ status: string }>("/health");
+      return {
+        status: payload.status,
+        checked_at: new Date().toISOString(),
+      };
+    }
+    await sleep(80);
+    return {
+      status: "mock",
+      checked_at: new Date().toISOString(),
     };
   },
 
