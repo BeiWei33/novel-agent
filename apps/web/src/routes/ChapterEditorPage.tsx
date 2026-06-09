@@ -78,6 +78,11 @@ export function ChapterEditorPage() {
     queryFn: () => api.getReviewReport(novelId, chapterNumber),
     enabled: Boolean(novelId && chapterNumber),
   });
+  const continuityQuery = useQuery({
+    queryKey: queryKeys.continuity(novelId, chapterNumber),
+    queryFn: () => api.getContinuityReport(novelId, chapterNumber),
+    enabled: Boolean(novelId && chapterNumber),
+  });
   const runsQuery = useQuery({
     queryKey: queryKeys.agentRuns(novelId),
     queryFn: () => api.getAgentRuns(novelId),
@@ -113,6 +118,7 @@ export function ChapterEditorPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.chapter(novelId, chapterNumber) }),
       queryClient.invalidateQueries({ queryKey: ["chapter-versions", novelId, chapterNumber] }),
       queryClient.invalidateQueries({ queryKey: ["chapter-review", novelId, chapterNumber] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.continuity(novelId, chapterNumber) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.agentRunsRoot }),
     ]);
     if (updated) {
@@ -319,6 +325,8 @@ export function ChapterEditorPage() {
               <ReviewPanel
                 report={reviewQuery.data}
                 isLoading={reviewQuery.isLoading}
+                continuityReport={continuityQuery.data}
+                continuityLoading={continuityQuery.isLoading}
                 onReview={() => reviewMutation.mutate()}
                 onRewrite={() => rewriteMutation.mutate()}
                 reviewPending={reviewMutation.isPending}

@@ -12,6 +12,7 @@ import type {
   ChapterDraft,
   ChapterOutline,
   ChapterVersion,
+  ContinuityReport,
   CreateNovelInput,
   Novel,
   NovelBible,
@@ -77,6 +78,11 @@ interface ChapterVersionResponse {
   chapter_index: number;
   version: number;
   content: string;
+}
+
+interface ContinuityResponse {
+  chapter: Chapter;
+  report: ContinuityReport | null;
 }
 
 interface ExportMarkdownResponse {
@@ -182,6 +188,7 @@ export const queryKeys = {
   chapter: (novelId: string, chapterIndex: number) => ["chapter", novelId, chapterIndex] as const,
   versions: (chapterId: string) => ["versions", chapterId] as const,
   review: (chapterId: string) => ["review", chapterId] as const,
+  continuity: (novelId: string, chapterIndex: number) => ["chapter-continuity", novelId, chapterIndex] as const,
   agentRunsRoot: ["agent-runs"] as const,
   agentRuns: (options: string | AgentRunListOptions = {}) => ["agent-runs", normalizeAgentRunListOptions(options)] as const,
   jobsRoot: ["jobs"] as const,
@@ -443,6 +450,49 @@ function contiguousRanges(chapterIndexes: number[]): number[][] {
 async function requestChapter(novelId: string, chapterIndex: number): Promise<Chapter> {
   const payload = await request<{ chapter: Chapter }>(`/api/novels/${novelId}/chapters/${chapterIndex}`);
   return payload.chapter;
+}
+
+function normalizeContinuityReport(report: ContinuityReport | null | undefined): ContinuityReport | null {
+  if (!report) {
+    return null;
+  }
+  return {
+    ...report,
+    passed: report.passed !== false,
+    issues: Array.isArray(report.issues) ? report.issues : [],
+    new_facts: Array.isArray(report.new_facts) ? report.new_facts : [],
+    character_state_updates: Array.isArray(report.character_state_updates) ? report.character_state_updates : [],
+    foreshadowing_updates: Array.isArray(report.foreshadowing_updates) ? report.foreshadowing_updates : [],
+  };
+}
+
+function makeMockContinuityReport(novelId: string, chapter: Chapter): ContinuityReport | null {
+  if (!chapter.content) {
+    return null;
+  }
+  const newFacts = (db.facts[novelId] ?? [])
+    .filter((fact) => fact.chapter_id === chapter.id)
+    .map(({ subject, predicate, object, importance }) => ({ subject, predicate, object, importance }));
+  return normalizeContinuityReport({
+    passed: true,
+    issues: [],
+    new_facts: newFacts,
+    character_state_updates: [
+      {
+        character: "主角",
+        state: chapter.summary ?? "本章行动已写入最新草稿。",
+        reason: `第 ${chapter.chapter_index} 章连续性 mock 检查通过。`,
+      },
+    ],
+    foreshadowing_updates: [
+      {
+        seed: chapter.title,
+        status: "advanced",
+        note: chapter.summary ?? "本章伏笔状态随正文推进。",
+      },
+    ],
+    raw_notes: "Mock 连续性报告，真实模式会读取后端最新 Continuity Agent 结果。",
+  });
 }
 
 function makeQueuedMockChapterJob(kind: ChapterJobKind, novelId: string, chapterIndex: number): ApiJob {
@@ -1011,6 +1061,15 @@ export const api = {
     await sleep(120);
     const chapter = findChapter(novelId, chapterIndex);
     return clone(db.reviews[chapter.id] ?? null);
+  },
+
+  async getContinuityReport(novelId: string, chapterIndex: number): Promise<ContinuityReport | null> {
+    if (!useMock) {
+      const payload = await request<ContinuityResponse>(`/api/novels/${novelId}/chapters/${chapterIndex}/continuity`);
+      return normalizeContinuityReport(payload.report);
+    }
+    await sleep(120);
+    return clone(makeMockContinuityReport(novelId, findChapter(novelId, chapterIndex)));
   },
 
   async getAgentRunReport(options: string | AgentRunListOptions = {}): Promise<AgentRunReport> {

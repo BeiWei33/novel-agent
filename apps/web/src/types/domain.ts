@@ -213,6 +213,41 @@ export interface ChapterDraft {
   version: number;
 }
 
+export interface ContinuityIssue {
+  severity?: "low" | "medium" | "high" | string;
+  type?: "character" | "world" | "timeline" | "fact" | "foreshadowing" | "other" | string;
+  location?: string;
+  description?: string;
+  suggestion?: string;
+  [key: string]: unknown;
+}
+
+export interface CharacterStateUpdate {
+  character?: string;
+  before?: string;
+  after?: string;
+  state?: string;
+  reason?: string;
+  [key: string]: unknown;
+}
+
+export interface ForeshadowingUpdate {
+  seed?: string;
+  status?: Foreshadowing["status"] | string;
+  note?: string;
+  [key: string]: unknown;
+}
+
+export interface ContinuityReport {
+  passed: boolean;
+  issues: ContinuityIssue[];
+  new_facts: FactTriple[];
+  character_state_updates: CharacterStateUpdate[];
+  foreshadowing_updates: ForeshadowingUpdate[];
+  raw_notes?: string;
+  [key: string]: unknown;
+}
+
 export interface ReviewScores {
   opening_hook_score: number;
   pacing_score: number;
