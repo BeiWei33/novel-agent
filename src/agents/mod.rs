@@ -1,11 +1,12 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::domain::NovelId;
-use crate::error::AgentError;
+use crate::error::{AgentError, ModelError};
 use crate::model::{ModelClient, ModelRequest};
 
 pub type ModelHandle = Arc<dyn ModelClient>;
@@ -54,18 +55,68 @@ impl NovelAgent for PromptAgent {
             payload,
             context
         );
-        let response = ctx
-            .model
-            .complete(ModelRequest {
+        let response = tokio::time::timeout(
+            model_call_timeout(self.role, input.task),
+            ctx.model.complete(ModelRequest {
                 system_prompt: Some(self.system_prompt.to_string()),
                 prompt,
-                temperature: Some(0.7),
-                max_tokens: None,
+                temperature: Some(default_temperature(self.role, input.task)),
+                max_tokens: Some(default_max_tokens(self.role, input.task)),
+            }),
+        )
+        .await
+        .map_err(|_| {
+            AgentError::Model(ModelError::Provider {
+                provider: "model".to_string(),
+                message: format!(
+                    "{} {} timed out after {} seconds",
+                    self.role.as_str(),
+                    input.task.as_str(),
+                    model_call_timeout(self.role, input.task).as_secs()
+                ),
             })
-            .await?;
+        })??;
 
-        Ok(parse_agent_output(self.role, response.text))
+        let mut output = parse_agent_output(self.role, response.text);
+        output.token_usage = response.usage;
+        Ok(output)
     }
+}
+
+fn default_temperature(role: AgentRole, task: AgentTask) -> f32 {
+    match (role, task) {
+        (AgentRole::Reviewer | AgentRole::Continuity, _) => 0.3,
+        (
+            AgentRole::Market | AgentRole::Plot | AgentRole::Character | AgentRole::Worldbuilding,
+            _,
+        ) => 0.6,
+        _ => 0.7,
+    }
+}
+
+fn default_max_tokens(role: AgentRole, task: AgentTask) -> u32 {
+    match (role, task) {
+        (AgentRole::Market, AgentTask::CreateNovel) => 2_500,
+        (AgentRole::Plot, AgentTask::GenerateOutline) => 6_500,
+        (AgentRole::Character, AgentTask::CreateNovel) => 3_000,
+        (AgentRole::Worldbuilding, AgentTask::CreateNovel) => 2_800,
+        (AgentRole::Writer, AgentTask::GenerateChapter | AgentTask::RewriteChapter) => 7_000,
+        (AgentRole::Style, AgentTask::PolishStyle) => 7_000,
+        (AgentRole::Continuity, _) => 2_500,
+        (AgentRole::Reviewer, _) => 3_000,
+        _ => 4_000,
+    }
+}
+
+fn model_call_timeout(role: AgentRole, task: AgentTask) -> Duration {
+    let seconds = match (role, task) {
+        (AgentRole::Character, AgentTask::CreateNovel) => 360,
+        (AgentRole::Plot, AgentTask::GenerateOutline)
+        | (AgentRole::Writer, AgentTask::GenerateChapter | AgentTask::RewriteChapter)
+        | (AgentRole::Style, AgentTask::PolishStyle) => 300,
+        _ => 240,
+    };
+    Duration::from_secs(seconds)
 }
 
 #[derive(Clone)]
@@ -111,6 +162,8 @@ pub struct AgentOutput {
     pub raw_notes: String,
     pub attempt: u32,
     pub will_fallback: bool,
+    pub duration_ms: Option<u64>,
+    pub token_usage: Option<crate::model::ModelUsage>,
     pub artifacts: Vec<AgentArtifact>,
 }
 
@@ -187,20 +240,10 @@ impl AgentTask {
 }
 
 fn parse_agent_output(role: AgentRole, raw_text: String) -> AgentOutput {
-    let candidate = strip_code_fence(raw_text.trim());
+    let candidate = extract_json_candidate(raw_text.trim());
     match serde_json::from_str::<Value>(candidate) {
-        Ok(value) => {
-            let structured = value
-                .get("structured")
-                .cloned()
-                .unwrap_or_else(|| value.clone());
-            let raw_notes = value
-                .get("raw_notes")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-
-            AgentOutput {
+        Ok(value) => match parse_agent_output_envelope(role, &value) {
+            Ok((structured, raw_notes)) => AgentOutput {
                 role,
                 structured,
                 raw_text,
@@ -208,9 +251,23 @@ fn parse_agent_output(role: AgentRole, raw_text: String) -> AgentOutput {
                 raw_notes,
                 attempt: 1,
                 will_fallback: false,
+                duration_ms: None,
+                token_usage: None,
                 artifacts: vec![],
-            }
-        }
+            },
+            Err(err) => AgentOutput {
+                role,
+                structured: json!({}),
+                raw_text,
+                parse_error: Some(err),
+                raw_notes: String::new(),
+                attempt: 1,
+                will_fallback: false,
+                duration_ms: None,
+                token_usage: None,
+                artifacts: vec![],
+            },
+        },
         Err(err) => AgentOutput {
             role,
             structured: json!({}),
@@ -219,19 +276,160 @@ fn parse_agent_output(role: AgentRole, raw_text: String) -> AgentOutput {
             raw_notes: String::new(),
             attempt: 1,
             will_fallback: false,
+            duration_ms: None,
+            token_usage: None,
             artifacts: vec![],
         },
     }
 }
 
-fn strip_code_fence(value: &str) -> &str {
+fn extract_json_candidate(value: &str) -> &str {
+    let value = value.trim().trim_start_matches('\u{feff}');
+    if let Some(fenced) = fenced_json_candidate(value) {
+        return fenced;
+    }
+
+    first_balanced_json_object(value).unwrap_or(value)
+}
+
+fn parse_agent_output_envelope(
+    expected_role: AgentRole,
+    value: &Value,
+) -> Result<(Value, String), String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "AgentOutput envelope must be a JSON object".to_string())?;
+    let role = object
+        .get("role")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "AgentOutput envelope missing string field `role`".to_string())?;
+    if role != expected_role.as_str() {
+        return Err(format!(
+            "AgentOutput envelope role `{role}` does not match expected `{}`",
+            expected_role.as_str()
+        ));
+    }
+
+    let structured = object
+        .get("structured")
+        .ok_or_else(|| "AgentOutput envelope missing field `structured`".to_string())?;
+    if !structured.is_object() {
+        return Err("AgentOutput envelope field `structured` must be an object".to_string());
+    }
+    validate_structured_payload(expected_role, structured)?;
+
+    let raw_notes = object
+        .get("raw_notes")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "AgentOutput envelope missing string field `raw_notes`".to_string())?;
+
+    Ok((structured.clone(), raw_notes.to_string()))
+}
+
+fn validate_structured_payload(role: AgentRole, structured: &Value) -> Result<(), String> {
+    match role {
+        AgentRole::Market => {
+            require_object_field(structured, "market_analysis")?;
+            require_array_field(structured, "title_candidates")?;
+            require_object_field(structured, "opening_strategy")?;
+            require_object_field(structured, "platform_profile")?;
+        }
+        AgentRole::Plot => {
+            require_object_field(structured, "plot_plan")?;
+            require_array_field(structured, "chapter_outlines")?;
+        }
+        AgentRole::Character => {
+            require_array_field(structured, "characters")?;
+        }
+        AgentRole::Worldbuilding => {
+            require_object_field(structured, "world_setting")?;
+            require_array_field(structured, "facts_to_seed")?;
+        }
+        AgentRole::Writer => {
+            require_object_field(structured, "chapter_draft")?;
+        }
+        AgentRole::Continuity => {
+            require_object_field(structured, "continuity_report")?;
+        }
+        AgentRole::Style => {
+            require_object_field(structured, "styled_chapter")?;
+        }
+        AgentRole::Reviewer => {
+            require_object_field(structured, "review_report")?;
+        }
+        AgentRole::Orchestrator => {}
+    }
+
+    Ok(())
+}
+
+fn require_object_field(value: &Value, key: &str) -> Result<(), String> {
+    if value.get(key).is_some_and(Value::is_object) {
+        Ok(())
+    } else {
+        Err(format!(
+            "AgentOutput structured missing required object field `{key}`"
+        ))
+    }
+}
+
+fn require_array_field(value: &Value, key: &str) -> Result<(), String> {
+    if value.get(key).is_some_and(Value::is_array) {
+        Ok(())
+    } else {
+        Err(format!(
+            "AgentOutput structured missing required array field `{key}`"
+        ))
+    }
+}
+
+fn fenced_json_candidate(value: &str) -> Option<&str> {
     let Some(stripped) = value.strip_prefix("```") else {
-        return value;
+        return None;
     };
-    let stripped = stripped.strip_prefix("json").unwrap_or(stripped);
-    stripped
-        .trim_start_matches(|ch| ch == '\r' || ch == '\n')
-        .strip_suffix("```")
-        .map(str::trim)
-        .unwrap_or(value)
+    let stripped = stripped
+        .strip_prefix("json")
+        .or_else(|| stripped.strip_prefix("JSON"))
+        .unwrap_or(stripped)
+        .trim_start();
+    let Some(fence_end) = stripped.find("```") else {
+        return Some(stripped.trim());
+    };
+
+    Some(stripped[..fence_end].trim())
+}
+
+fn first_balanced_json_object(value: &str) -> Option<&str> {
+    let start = value.char_indices().find(|(_, ch)| *ch == '{')?.0;
+    let mut depth = 0_u32;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (offset, ch) in value[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    let end = start + offset + ch.len_utf8();
+                    return Some(value[start..end].trim());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }

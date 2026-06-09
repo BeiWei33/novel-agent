@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod api;
 pub mod config;
 pub mod domain;
 pub mod error;

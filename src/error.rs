@@ -44,6 +44,8 @@ pub enum WorkflowError {
     NovelNotFound(String),
     #[error("chapter {chapter} for novel `{novel_id}` was not found")]
     ChapterNotFound { novel_id: String, chapter: u32 },
+    #[error("invalid workflow input: {0}")]
+    InvalidInput(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }

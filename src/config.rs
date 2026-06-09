@@ -14,6 +14,8 @@ pub struct AppConfig {
 pub struct ModelConfig {
     pub provider: String,
     pub model: String,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +29,7 @@ impl Default for AppConfig {
             model: ModelConfig {
                 provider: "openai".to_string(),
                 model: "gpt-5".to_string(),
+                reasoning_effort: None,
             },
             storage: StorageConfig {
                 database_url: "sqlite://novel-agent.db".to_string(),

@@ -11,15 +11,26 @@
   "idea": "原始创意",
   "market_analysis": {},
   "target_platform": "qidian | fanqie | general",
-  "target_chapters": 30,
-  "known_constraints": ["禁写项或用户限制"]
+  "target_chapters": 10,
+  "total_chapters": 30,
+  "chapter_start": 1,
+  "chapter_end": 10,
+  "known_constraints": ["禁写项或用户限制"],
+  "existing_plot_plan": {},
+  "previous_chapter_outlines": [],
+  "batch_policy": {
+    "output_only_this_range": true,
+    "keep_absolute_chapter_index": true
+  }
 }
 ```
+
+工程侧可能会为降低长 JSON 截断风险分批调用 Plot Agent。出现 `chapter_start` / `chapter_end` 时，只输出该闭区间内的章节大纲；`chapter_index` 必须使用全书绝对章号，不要从 1 重新编号。
 
 ## 任务
 
 1. 设计全书主线、核心冲突、阶段性目标和长期期待。
-2. 拆分第一卷结构，优先生成前 30 章大纲。
+2. 拆分第一卷结构，优先生成当前批次要求的章节大纲。
 3. 确保前三章强冲突，前十章建立核心期待。
 4. 每章都必须有推进、爽点或情绪回报。
 5. 为 Chapter Writer 提供可执行的大纲，而不是文学评论。

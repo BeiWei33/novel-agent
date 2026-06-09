@@ -1,16 +1,31 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use novel_agent::agents::ModelHandle;
 use novel_agent::domain::{ChapterOutline, ChapterStatus, CharacterCard, TargetPlatform};
 use novel_agent::error::ModelError;
-use novel_agent::model::{ModelClient, ModelRequest, ModelResponse};
+use novel_agent::model::{
+    ModelClient, ModelProvider, ModelRequest, ModelResponse, SmokeModelClient,
+};
 use novel_agent::storage::SqliteStorage;
 use novel_agent::workflow::{ChapterGenerationWorkflow, NovelCreationWorkflow};
 use uuid::Uuid;
 
 #[derive(Debug)]
 struct InvalidJsonModel;
+#[derive(Debug)]
+struct MissingEnvelopeModel;
+#[derive(Debug)]
+struct MissingStructuredFieldModel;
+#[derive(Debug)]
+struct RetryAwareEnvelopeModel {
+    attempts_by_role: Mutex<HashMap<&'static str, u32>>,
+}
+#[derive(Debug)]
+struct FencedJsonModel;
+#[derive(Debug)]
+struct DirectTrailingJsonModel;
 #[derive(Debug)]
 struct ValidJsonModel {
     fixture: FixtureKind,
@@ -40,6 +55,37 @@ impl ModelClient for InvalidJsonModel {
         Ok(ModelResponse {
             text: "not json".to_string(),
             raw: "not json".to_string(),
+            usage: None,
+        })
+    }
+}
+
+#[async_trait]
+impl ModelClient for MissingEnvelopeModel {
+    async fn complete(&self, _request: ModelRequest) -> Result<ModelResponse, ModelError> {
+        let text = r#"{"market_analysis":{},"raw_notes":"missing envelope"}"#.to_string();
+        Ok(ModelResponse {
+            raw: text.clone(),
+            text,
+            usage: None,
+        })
+    }
+}
+
+#[async_trait]
+impl ModelClient for MissingStructuredFieldModel {
+    async fn complete(&self, request: ModelRequest) -> Result<ModelResponse, ModelError> {
+        let role = role_key_for_system(request.system_prompt.as_deref().unwrap_or_default());
+        let text = serde_json::json!({
+            "role": role,
+            "structured": {},
+            "raw_notes": ""
+        })
+        .to_string();
+        Ok(ModelResponse {
+            raw: text.clone(),
+            text,
+            usage: None,
         })
     }
 }
@@ -48,29 +94,76 @@ impl ModelClient for InvalidJsonModel {
 impl ModelClient for ValidJsonModel {
     async fn complete(&self, request: ModelRequest) -> Result<ModelResponse, ModelError> {
         let system = request.system_prompt.as_deref().unwrap_or_default();
-        let text = if system.contains("Market Agent Prompt") {
-            self.fixture.market_json()
-        } else if system.contains("Plot Agent Prompt") {
-            self.fixture.plot_json()
-        } else if system.contains("Character Agent Prompt") {
-            self.fixture.character_json()
-        } else if system.contains("Worldbuilding Agent Prompt") {
-            self.fixture.worldbuilding_json()
-        } else if system.contains("Chapter Writer Agent Prompt") {
-            self.fixture.writer_json()
-        } else if system.contains("Continuity Agent Prompt") {
-            self.fixture.continuity_json()
-        } else if system.contains("Style Agent Prompt") {
-            self.fixture.style_json()
-        } else if system.contains("Reviewer Agent Prompt") {
-            reviewer_json()
+        let text = fixture_response_for_system(self.fixture, system);
+
+        Ok(ModelResponse {
+            raw: text.clone(),
+            text,
+            usage: None,
+        })
+    }
+}
+
+#[async_trait]
+impl ModelClient for RetryAwareEnvelopeModel {
+    async fn complete(&self, request: ModelRequest) -> Result<ModelResponse, ModelError> {
+        let system = request.system_prompt.as_deref().unwrap_or_default();
+        let role_key = role_key_for_system(system);
+        let attempt = {
+            let mut attempts = self.attempts_by_role.lock().unwrap();
+            let entry = attempts.entry(role_key).or_default();
+            *entry += 1;
+            *entry
+        };
+        let text = if attempt == 1 {
+            r#"{"market_analysis":{},"raw_notes":"missing envelope"}"#.to_string()
+        } else if request.prompt.contains("上一次解析错误：")
+            && request.prompt.contains("AgentOutput envelope")
+        {
+            fixture_response_for_system(FixtureKind::Fantasy, system)
         } else {
-            r#"{"role":"unknown","structured":{},"raw_notes":""}"#.to_string()
+            r#"{"role":"unknown","structured":{},"raw_notes":"retry prompt missed parse error"}"#
+                .to_string()
         };
 
         Ok(ModelResponse {
             raw: text.clone(),
             text,
+            usage: None,
+        })
+    }
+}
+
+#[async_trait]
+impl ModelClient for FencedJsonModel {
+    async fn complete(&self, request: ModelRequest) -> Result<ModelResponse, ModelError> {
+        let system = request.system_prompt.as_deref().unwrap_or_default();
+        let text = format!(
+            "```json\n{}\n```\n以上为结构化 JSON。",
+            fixture_response_for_system(FixtureKind::Fantasy, system)
+        );
+
+        Ok(ModelResponse {
+            raw: text.clone(),
+            text,
+            usage: None,
+        })
+    }
+}
+
+#[async_trait]
+impl ModelClient for DirectTrailingJsonModel {
+    async fn complete(&self, request: ModelRequest) -> Result<ModelResponse, ModelError> {
+        let system = request.system_prompt.as_deref().unwrap_or_default();
+        let text = format!(
+            "{}\n以上为结构化 JSON，请按需入库。",
+            fixture_response_for_system(FixtureKind::Fantasy, system)
+        );
+
+        Ok(ModelResponse {
+            raw: text.clone(),
+            text,
+            usage: None,
         })
     }
 }
@@ -113,8 +206,415 @@ impl ModelClient for NeedsRewriteModel {
         Ok(ModelResponse {
             raw: text.clone(),
             text,
+            usage: None,
         })
     }
+}
+
+#[tokio::test]
+async fn fenced_agent_output_json_with_trailing_text_is_parsed() {
+    let db_path = std::env::temp_dir().join(format!("novel-agent-{}.db", Uuid::new_v4()));
+    let database_url = format!(
+        "sqlite://{}",
+        db_path.display().to_string().replace('\\', "/")
+    );
+    let storage = SqliteStorage::connect(&database_url).await.unwrap();
+    storage.migrate().await.unwrap();
+    let model: ModelHandle = Arc::new(FencedJsonModel);
+
+    let creation = NovelCreationWorkflow::new(&storage, model);
+    let result = creation
+        .create_from_idea(
+            "玄幻升级文，边城少年继承一座会记录因果债的古塔",
+            TargetPlatform::Qidian,
+        )
+        .await
+        .unwrap();
+    assert!(!result.used_fallback);
+    assert_eq!(result.novel.title, "因果塔债");
+
+    let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+    let parse_errors: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM agent_runs WHERE parse_error IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(parse_errors, 0);
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn direct_agent_output_json_with_trailing_text_is_parsed() {
+    let db_path = std::env::temp_dir().join(format!("novel-agent-{}.db", Uuid::new_v4()));
+    let database_url = format!(
+        "sqlite://{}",
+        db_path.display().to_string().replace('\\', "/")
+    );
+    let storage = SqliteStorage::connect(&database_url).await.unwrap();
+    storage.migrate().await.unwrap();
+    let model: ModelHandle = Arc::new(DirectTrailingJsonModel);
+
+    let creation = NovelCreationWorkflow::new(&storage, model);
+    let result = creation
+        .create_from_idea(
+            "玄幻升级文，边城少年继承一座会记录因果债的古塔",
+            TargetPlatform::Qidian,
+        )
+        .await
+        .unwrap();
+    assert!(!result.used_fallback);
+    assert_eq!(result.novel.title, "因果塔债");
+
+    let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+    let parse_errors: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM agent_runs WHERE parse_error IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(parse_errors, 0);
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
+fn model_provider_parse_supports_local_smoke_aliases() {
+    assert_eq!(ModelProvider::parse("smoke").unwrap(), ModelProvider::Smoke);
+    assert_eq!(ModelProvider::parse("local").unwrap(), ModelProvider::Smoke);
+    assert_eq!(
+        ModelProvider::parse("offline").unwrap(),
+        ModelProvider::Smoke
+    );
+    assert_eq!(
+        ModelProvider::parse("openai").unwrap(),
+        ModelProvider::OpenAi
+    );
+    assert_eq!(
+        ModelProvider::parse("deepseek").unwrap(),
+        ModelProvider::DeepSeek
+    );
+}
+
+#[tokio::test]
+async fn json_without_agent_output_envelope_is_marked_parse_error() {
+    let db_path = std::env::temp_dir().join(format!("novel-agent-{}.db", Uuid::new_v4()));
+    let database_url = format!(
+        "sqlite://{}",
+        db_path.display().to_string().replace('\\', "/")
+    );
+    let storage = SqliteStorage::connect(&database_url).await.unwrap();
+    storage.migrate().await.unwrap();
+    let model: ModelHandle = Arc::new(MissingEnvelopeModel);
+
+    let creation = NovelCreationWorkflow::new(&storage, model);
+    let result = creation
+        .create_from_idea(
+            "都市重生商业文，主角回到十年前，从外卖站开始逆袭",
+            TargetPlatform::Fanqie,
+        )
+        .await
+        .unwrap();
+    assert!(result.used_fallback);
+
+    let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+    let parse_error: String = sqlx::query_scalar(
+        "SELECT parse_error FROM agent_runs WHERE parse_error IS NOT NULL LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(parse_error.contains("AgentOutput envelope"));
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn structured_missing_required_agent_fields_is_marked_parse_error() {
+    let db_path = std::env::temp_dir().join(format!("novel-agent-{}.db", Uuid::new_v4()));
+    let database_url = format!(
+        "sqlite://{}",
+        db_path.display().to_string().replace('\\', "/")
+    );
+    let storage = SqliteStorage::connect(&database_url).await.unwrap();
+    storage.migrate().await.unwrap();
+    let model: ModelHandle = Arc::new(MissingStructuredFieldModel);
+
+    let creation = NovelCreationWorkflow::new(&storage, model);
+    let result = creation
+        .create_from_idea(
+            "都市重生商业文，主角回到十年前，从外卖站开始逆袭",
+            TargetPlatform::Fanqie,
+        )
+        .await
+        .unwrap();
+    assert!(result.used_fallback);
+
+    let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+    let missing_market_analysis_errors: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_runs WHERE parse_error LIKE '%market_analysis%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(missing_market_analysis_errors > 0);
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn retry_prompt_includes_previous_parse_error() {
+    let db_path = std::env::temp_dir().join(format!("novel-agent-{}.db", Uuid::new_v4()));
+    let database_url = format!(
+        "sqlite://{}",
+        db_path.display().to_string().replace('\\', "/")
+    );
+    let storage = SqliteStorage::connect(&database_url).await.unwrap();
+    storage.migrate().await.unwrap();
+    let model = Arc::new(RetryAwareEnvelopeModel {
+        attempts_by_role: Mutex::new(HashMap::new()),
+    });
+    let model_handle: ModelHandle = model.clone();
+
+    let creation = NovelCreationWorkflow::new(&storage, model_handle);
+    let result = creation
+        .create_from_idea_with_outline_batch_size(
+            "玄幻升级文，边城少年继承一座会记录因果债的古塔",
+            TargetPlatform::Qidian,
+            6,
+            10,
+        )
+        .await
+        .unwrap();
+    assert!(!result.used_fallback);
+    assert_eq!(result.novel.title, "因果塔债");
+
+    let attempts = model.attempts_by_role.lock().unwrap();
+    for role in ["market", "plot", "character", "worldbuilding"] {
+        assert_eq!(attempts.get(role), Some(&2), "{role} should retry once");
+    }
+    drop(attempts);
+
+    let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+    let parse_errors: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_runs WHERE parse_error LIKE '%AgentOutput envelope%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(parse_errors, 4);
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn local_smoke_provider_drives_workflows_without_fallback() {
+    let db_path = std::env::temp_dir().join(format!("novel-agent-{}.db", Uuid::new_v4()));
+    let database_url = format!(
+        "sqlite://{}",
+        db_path.display().to_string().replace('\\', "/")
+    );
+    let storage = SqliteStorage::connect(&database_url).await.unwrap();
+    storage.migrate().await.unwrap();
+    let model: ModelHandle = Arc::new(SmokeModelClient::new("smoke"));
+
+    let creation = NovelCreationWorkflow::new(&storage, model.clone());
+    let result = creation
+        .create_from_idea(
+            "都市重生商业文，主角回到十年前，从外卖站开始逆袭",
+            TargetPlatform::Fanqie,
+        )
+        .await
+        .unwrap();
+    assert!(!result.used_fallback);
+    assert_eq!(result.novel.title, "重回外卖站");
+    assert_eq!(result.outlines.len(), 30);
+    assert_eq!(result.outlines.first().unwrap().chapter_index, 1);
+    assert_eq!(result.outlines.last().unwrap().chapter_index, 30);
+
+    let chapters = ChapterGenerationWorkflow::new(&storage, model);
+    let draft = chapters.write_chapter(&result.novel.id, 1).await.unwrap();
+    assert!(!draft.content.trim().is_empty());
+    assert!(!draft
+        .continuity_notes
+        .iter()
+        .any(|note| note.to_ascii_lowercase().contains("fallback")));
+
+    let report = chapters.review_chapter(&result.novel.id, 1).await.unwrap();
+    assert!(report.passed);
+    assert_eq!(report.total_score, 82);
+
+    let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+    let parse_errors: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM agent_runs WHERE parse_error IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(parse_errors, 0);
+
+    let structured: String =
+        sqlx::query_scalar("SELECT structured FROM agent_runs WHERE role = 'market' LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let structured: serde_json::Value = serde_json::from_str(&structured).unwrap();
+    let total_tokens = structured["_engineering"]["token_usage"]["total_tokens"]
+        .as_u64()
+        .unwrap_or_default();
+    assert!(total_tokens > 0);
+    let plot_runs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_runs WHERE role = 'plot' AND parse_error IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(plot_runs, 6);
+    let runs = storage
+        .agent_runs()
+        .list_recent(Some(&result.novel.id), 20)
+        .await
+        .unwrap();
+    assert!(!runs.is_empty());
+    assert!(runs
+        .iter()
+        .all(|run| run.novel_id.as_ref() == Some(&result.novel.id)));
+    assert!(runs.iter().any(|run| run.role == "market"));
+    assert!(runs.iter().any(|run| run.role == "reviewer"));
+    assert!(runs
+        .iter()
+        .any(|run| run.structured.get("_engineering").is_some()));
+
+    let export_path = std::env::temp_dir().join(format!("novel-agent-{}.md", Uuid::new_v4()));
+    let exported = chapters
+        .export_markdown(&result.novel.id, Some(export_path.clone()))
+        .await
+        .unwrap();
+    assert_eq!(exported, export_path);
+
+    let _ = std::fs::remove_file(db_path);
+    let _ = std::fs::remove_file(export_path);
+}
+
+#[tokio::test]
+async fn create_novel_can_limit_initial_outline_chapters() {
+    let db_path = std::env::temp_dir().join(format!("novel-agent-{}.db", Uuid::new_v4()));
+    let database_url = format!(
+        "sqlite://{}",
+        db_path.display().to_string().replace('\\', "/")
+    );
+    let storage = SqliteStorage::connect(&database_url).await.unwrap();
+    storage.migrate().await.unwrap();
+    let model: ModelHandle = Arc::new(SmokeModelClient::new("smoke"));
+
+    let creation = NovelCreationWorkflow::new(&storage, model);
+    let result = creation
+        .create_from_idea_with_outline_batch_size(
+            "都市重生商业文，主角回到十年前，从外卖站开始逆袭",
+            TargetPlatform::Fanqie,
+            6,
+            10,
+        )
+        .await
+        .unwrap();
+    assert!(!result.used_fallback);
+    assert_eq!(result.outlines.len(), 6);
+
+    let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+    let saved_chapters: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapters WHERE novel_id = ?")
+            .bind(result.novel.id.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(saved_chapters, 6);
+    let plot_runs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_runs WHERE role = 'plot' AND parse_error IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(plot_runs, 1);
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn create_novel_can_merge_batched_initial_outlines() {
+    let db_path = std::env::temp_dir().join(format!("novel-agent-{}.db", Uuid::new_v4()));
+    let database_url = format!(
+        "sqlite://{}",
+        db_path.display().to_string().replace('\\', "/")
+    );
+    let storage = SqliteStorage::connect(&database_url).await.unwrap();
+    storage.migrate().await.unwrap();
+    let model: ModelHandle = Arc::new(SmokeModelClient::new("smoke"));
+
+    let creation = NovelCreationWorkflow::new(&storage, model);
+    let result = creation
+        .create_from_idea_with_outline_batch_size(
+            "都市重生商业文，主角回到十年前，从外卖站开始逆袭",
+            TargetPlatform::Fanqie,
+            13,
+            6,
+        )
+        .await
+        .unwrap();
+    assert!(!result.used_fallback);
+    assert_eq!(result.outlines.len(), 13);
+    assert_eq!(
+        result
+            .outlines
+            .iter()
+            .map(|outline| outline.chapter_index)
+            .collect::<Vec<_>>(),
+        (1..=13).collect::<Vec<_>>()
+    );
+
+    let pool = sqlx::SqlitePool::connect(&database_url).await.unwrap();
+    let saved_chapters: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapters WHERE novel_id = ?")
+            .bind(result.novel.id.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(saved_chapters, 13);
+    let plot_runs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_runs WHERE role = 'plot'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(plot_runs, 3);
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn local_smoke_provider_supports_streamed_completion_chunks() {
+    let client = SmokeModelClient::new("smoke");
+    let response = client
+        .complete_stream(ModelRequest {
+            system_prompt: Some("Market Agent Prompt".to_string()),
+            prompt: r#"{"target_platform":"fanqie","idea":"都市重生商业文，主角回到十年前，从外卖站开始逆袭"}"#.repeat(4),
+            temperature: Some(0.7),
+            max_tokens: None,
+        })
+        .await
+        .unwrap();
+
+    assert!(response.chunks.len() > 1);
+    assert!(response.chunks.last().unwrap().is_final);
+    let stitched = response
+        .chunks
+        .iter()
+        .map(|chunk| chunk.text.as_str())
+        .collect::<String>();
+    assert_eq!(stitched, response.response.text);
+    assert!(
+        response
+            .response
+            .usage
+            .and_then(|usage| usage.total_tokens)
+            .unwrap_or_default()
+            > 0
+    );
 }
 
 #[tokio::test]
@@ -163,6 +663,19 @@ async fn smoke_flow_falls_back_when_model_output_is_invalid() {
             .await
             .unwrap();
     assert!(parse_errors > 0);
+    let structured: String = sqlx::query_scalar("SELECT structured FROM agent_runs LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let structured: serde_json::Value = serde_json::from_str(&structured).unwrap();
+    let engineering = structured
+        .get("_engineering")
+        .expect("agent run should include engineering metadata");
+    assert!(engineering
+        .get("duration_ms")
+        .and_then(serde_json::Value::as_u64)
+        .is_some());
+    assert!(engineering.get("token_usage").is_some());
 
     let export_path = std::env::temp_dir().join(format!("novel-agent-{}.md", Uuid::new_v4()));
     let exported = chapters
@@ -460,6 +973,61 @@ async fn low_score_review_can_rewrite_and_record_versions() {
     assert_eq!(final_chapter.version, 2);
     assert_eq!(final_chapter.status, ChapterStatus::Final);
 
+    let manual_content = format!(
+        "{}\n人工编辑新增：沈砚主动记录第二笔因果债，把下一章目标钉得更清楚。",
+        rewritten.content
+    );
+    let manual = chapters
+        .save_manual_edit(
+            &result.novel.id,
+            1,
+            Some("第一章 债印初醒（人工修订）".to_string()),
+            manual_content.clone(),
+            Some("人工编辑后补强第二笔因果债和下一章目标。".to_string()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(manual.version, 3);
+    assert_eq!(manual.title, "第一章 债印初醒（人工修订）");
+    assert_eq!(manual.word_count, count_chars(&manual_content));
+    assert!(manual.content.contains("人工编辑新增"));
+    assert_eq!(
+        storage
+            .chapter_versions()
+            .list_version_numbers(&manual.chapter_id)
+            .await
+            .unwrap(),
+        vec![1, 2, 3]
+    );
+    assert!(storage
+        .chapter_versions()
+        .content_for_version(&manual.chapter_id, 3)
+        .await
+        .unwrap()
+        .unwrap()
+        .contains("人工编辑新增"));
+
+    let edited_chapter = storage
+        .chapters()
+        .find_by_index(&result.novel.id, 1)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(edited_chapter.version, 3);
+    assert_eq!(edited_chapter.status, ChapterStatus::Drafted);
+    assert_eq!(edited_chapter.score, None);
+
+    let manual_report = chapters.review_chapter(&result.novel.id, 1).await.unwrap();
+    assert!(manual_report.passed);
+    let reviewed_manual = storage
+        .chapters()
+        .find_by_index(&result.novel.id, 1)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reviewed_manual.version, 3);
+    assert_eq!(reviewed_manual.status, ChapterStatus::Final);
+
     let review_count: i64 = sqlx::query_scalar(
         r#"
         SELECT COUNT(*)
@@ -471,7 +1039,7 @@ async fn low_score_review_can_rewrite_and_record_versions() {
     .fetch_one(&sqlx::SqlitePool::connect(&database_url).await.unwrap())
     .await
     .unwrap();
-    assert_eq!(review_count, 2);
+    assert_eq!(review_count, 3);
 
     let _ = std::fs::remove_file(db_path);
 }
@@ -623,6 +1191,50 @@ fn extract_expected_checks_json(content: &str) -> Option<&str> {
     let after_fence = &after_marker[fence_start..];
     let fence_end = after_fence.find("```")?;
     Some(after_fence[..fence_end].trim())
+}
+
+fn fixture_response_for_system(fixture: FixtureKind, system: &str) -> String {
+    if system.contains("Market Agent Prompt") {
+        fixture.market_json()
+    } else if system.contains("Plot Agent Prompt") {
+        fixture.plot_json()
+    } else if system.contains("Character Agent Prompt") {
+        fixture.character_json()
+    } else if system.contains("Worldbuilding Agent Prompt") {
+        fixture.worldbuilding_json()
+    } else if system.contains("Chapter Writer Agent Prompt") {
+        fixture.writer_json()
+    } else if system.contains("Continuity Agent Prompt") {
+        fixture.continuity_json()
+    } else if system.contains("Style Agent Prompt") {
+        fixture.style_json()
+    } else if system.contains("Reviewer Agent Prompt") {
+        reviewer_json()
+    } else {
+        r#"{"role":"unknown","structured":{},"raw_notes":""}"#.to_string()
+    }
+}
+
+fn role_key_for_system(system: &str) -> &'static str {
+    if system.contains("Market Agent Prompt") {
+        "market"
+    } else if system.contains("Plot Agent Prompt") {
+        "plot"
+    } else if system.contains("Character Agent Prompt") {
+        "character"
+    } else if system.contains("Worldbuilding Agent Prompt") {
+        "worldbuilding"
+    } else if system.contains("Chapter Writer Agent Prompt") {
+        "writer"
+    } else if system.contains("Continuity Agent Prompt") {
+        "continuity"
+    } else if system.contains("Style Agent Prompt") {
+        "style"
+    } else if system.contains("Reviewer Agent Prompt") {
+        "reviewer"
+    } else {
+        "unknown"
+    }
 }
 
 impl FixtureKind {

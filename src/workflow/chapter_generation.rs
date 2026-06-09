@@ -252,18 +252,65 @@ impl<'a> ChapterGenerationWorkflow<'a> {
         Ok(draft)
     }
 
+    pub async fn save_manual_edit(
+        &self,
+        novel_id: &NovelId,
+        chapter_index: u32,
+        title: Option<String>,
+        content: String,
+        summary: Option<String>,
+    ) -> Result<ChapterDraft, WorkflowError> {
+        if content.trim().is_empty() {
+            return Err(WorkflowError::InvalidInput(
+                "manual edit content cannot be empty".to_string(),
+            ));
+        }
+
+        self.storage
+            .novels()
+            .find(novel_id)
+            .await?
+            .ok_or_else(|| WorkflowError::NovelNotFound(novel_id.to_string()))?;
+        let chapter = self
+            .storage
+            .chapters()
+            .find_by_index(novel_id, chapter_index)
+            .await?
+            .ok_or_else(|| WorkflowError::ChapterNotFound {
+                novel_id: novel_id.to_string(),
+                chapter: chapter_index,
+            })?;
+
+        let title = non_empty_string(title).unwrap_or_else(|| chapter.title.clone());
+        let summary = non_empty_string(summary)
+            .or(chapter.summary.clone())
+            .unwrap_or_else(|| format!("第{}章人工编辑版本。", chapter.chapter_index));
+        let draft = ChapterDraft {
+            volume_index: chapter.volume_index,
+            chapter_id: chapter.id.clone(),
+            novel_id: chapter.novel_id.clone(),
+            chapter_index: chapter.chapter_index,
+            title,
+            word_count: count_words(&content),
+            content,
+            summary,
+            pov: "第三人称有限视角".to_string(),
+            key_events: vec!["人工编辑保存新版本。".to_string()],
+            new_facts: vec![],
+            foreshadowing: vec![],
+            continuity_notes: vec!["人工编辑版本，建议重新审稿或按需返工。".to_string()],
+            version: chapter.version + 1,
+        };
+
+        self.storage.chapters().save_draft(&draft).await?;
+        Ok(draft)
+    }
+
     pub async fn export_markdown(
         &self,
         novel_id: &NovelId,
         output: Option<PathBuf>,
     ) -> Result<PathBuf, WorkflowError> {
-        let novel = self
-            .storage
-            .novels()
-            .find(novel_id)
-            .await?
-            .ok_or_else(|| WorkflowError::NovelNotFound(novel_id.to_string()))?;
-        let chapters = self.storage.chapters().list_by_novel(novel_id).await?;
         let path = output.unwrap_or_else(|| PathBuf::from(format!("exports/{}.md", novel_id)));
 
         if let Some(parent) = path
@@ -273,19 +320,23 @@ impl<'a> ChapterGenerationWorkflow<'a> {
             tokio::fs::create_dir_all(parent).await?;
         }
 
-        let mut markdown = format!("# {}\n\n", novel.title);
-        for chapter in chapters {
-            markdown.push_str(&format!("## {}\n\n", chapter.title));
-            if let Some(content) = chapter.content {
-                markdown.push_str(&content);
-            } else {
-                markdown.push_str(&chapter.outline);
-            }
-            markdown.push_str("\n\n");
-        }
-
+        let markdown = self.export_markdown_content(novel_id).await?;
         tokio::fs::write(&path, markdown).await?;
         Ok(path)
+    }
+
+    pub async fn export_markdown_content(
+        &self,
+        novel_id: &NovelId,
+    ) -> Result<String, WorkflowError> {
+        let novel = self
+            .storage
+            .novels()
+            .find(novel_id)
+            .await?
+            .ok_or_else(|| WorkflowError::NovelNotFound(novel_id.to_string()))?;
+        let chapters = self.storage.chapters().list_by_novel(novel_id).await?;
+        Ok(render_markdown(&novel.title, chapters))
     }
 
     async fn run_continuity(
@@ -409,6 +460,11 @@ async fn recent_summaries(
 fn draft_from_agent_output(chapter: &Chapter, structured: &Value) -> Option<ChapterDraft> {
     let value = structured.get("chapter_draft")?;
     let content = string_field(value, "content")?;
+    let output_chapter_index = number_field(value, "chapter_index");
+    let title = match output_chapter_index {
+        Some(index) if index != chapter.chapter_index => chapter.title.clone(),
+        _ => string_field(value, "title").unwrap_or_else(|| chapter.title.clone()),
+    };
     let word_count = value
         .get("word_count")
         .or_else(|| value.get("word_count_estimate"))
@@ -417,11 +473,11 @@ fn draft_from_agent_output(chapter: &Chapter, structured: &Value) -> Option<Chap
         .unwrap_or_else(|| count_words(&content));
 
     Some(ChapterDraft {
-        volume_index: number_field(value, "volume_index").unwrap_or(chapter.volume_index),
+        volume_index: chapter.volume_index,
         chapter_id: chapter.id.clone(),
         novel_id: chapter.novel_id.clone(),
-        chapter_index: number_field(value, "chapter_index").unwrap_or(chapter.chapter_index),
-        title: string_field(value, "title").unwrap_or_else(|| chapter.title.clone()),
+        chapter_index: chapter.chapter_index,
+        title,
         summary: string_field(value, "summary").unwrap_or_default(),
         word_count,
         content,
@@ -666,8 +722,28 @@ fn string_vec(value: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn non_empty_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn number_field(value: &Value, key: &str) -> Option<u32> {
     value.get(key)?.as_u64().map(|value| value as u32)
+}
+
+fn render_markdown(title: &str, chapters: Vec<Chapter>) -> String {
+    let mut markdown = format!("# {title}\n\n");
+    for chapter in chapters {
+        markdown.push_str(&format!("## {}\n\n", chapter.title));
+        if let Some(content) = chapter.content {
+            markdown.push_str(&content);
+        } else {
+            markdown.push_str(&chapter.outline);
+        }
+        markdown.push_str("\n\n");
+    }
+    markdown
 }
 
 fn score_placeholder_chapter(content: &str) -> (i32, ReviewScores) {

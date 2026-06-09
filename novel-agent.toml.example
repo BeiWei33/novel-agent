@@ -1,6 +1,21 @@
 [model]
-provider = "openai"
-model = "gpt-5"
+provider = "smoke"
+model = "smoke"
+
+# Real provider examples:
+# provider = "openai"
+# model = "gpt-5"
+# reasoning_effort = "xhigh"
+#
+# provider = "deepseek"
+# model = "deepseek-chat"
+#
+# Local OpenAI-compatible proxy example:
+# $env:OPENAI_BASE_URL = "http://127.0.0.1:8317/v1"
+# $env:OPENAI_API_KEY = "<cliproxy bearer token>"
+# provider = "openai"
+# model = "gpt-5.5"
+# reasoning_effort = "xhigh"
 
 [storage]
 database_url = "sqlite://novel-agent.db"

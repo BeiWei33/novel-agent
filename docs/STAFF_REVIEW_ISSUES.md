@@ -580,3 +580,1442 @@ new / outline / write / review / rewrite / export all ok
 当前状态：
 
 - 低分返工和章节版本对比已进入自动测试覆盖。
+
+## 15. 开发者 A 第七轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- C-P0-1：新增 `docs/INTERFACE_FREEZE.md`，冻结 MVP 阶段 A/B 协作接口。
+- C-P0-1：明确 `docs/SCHEMAS.md` 是业务字段权威，Rust domain/storage 可增加工程字段但不得改变业务字段含义。
+- C-P0-1：明确 Agent 输入输出 envelope、冻结结构清单、工作流顺序、持久化对象和字段变更规则。
+- C-P0-1：将变更验证命令固定为 `cargo check`、`cargo test` 和 `scripts/mvp_demo.ps1`，真实模型验收使用 `-UseRealModel`。
+
+验证结果：
+
+```text
+cargo test
+4 passed; 0 failed
+```
+
+当前状态：
+
+- MVP 接口冻结规则已落文档。
+
+## 16. 开发者 B 第七轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P0-1 / B-P1-2：`PromptAgent` 现在会严格校验 AgentOutput envelope，合法 JSON 也必须包含匹配的 `role`、对象型 `structured` 和字符串型 `raw_notes`。
+- B-P1-2：缺少 envelope、角色不匹配或 `structured` 类型不对时，会写入 `parse_error` 并触发既有重试/fallback 逻辑，避免裸 JSON 被误判为真实模型成功输出。
+- B-P1-2：`tests/smoke.rs` 增加合法 JSON 但缺少 AgentOutput envelope 的回归用例，确认该类输出会被标记为 parse error。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+5 passed; 0 failed
+```
+
+当前状态：
+
+- 真实模型链路的输出 envelope 已进入严格解析和自动回归覆盖。
+
+## 17. 开发者 A 第八轮复核记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A/B 接口复核：在 B 侧收紧 `AgentOutput` envelope 解析后，重新执行 A 侧冻结验收命令。
+- C-P0-1：`docs/INTERFACE_FREEZE.md` 的当前验收状态已补充严格 envelope 校验覆盖项。
+- C-P0-2：确认严格解析没有破坏离线 MVP CLI 闭环，fallback 路径仍能完成 `new -> outline -> write -> review -> rewrite -> export`。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+5 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+new / outline / write / review / rewrite / export all ok
+export_size=15976
+```
+
+当前状态：
+
+- MVP 冻结接口、严格输出解析、离线验收闭环已完成交叉复核。
+
+## 18. 开发者 B 第九轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P1-2：`run_prompt_agent` 的重试提示现在会携带上一轮 `parse_error`，让模型能针对 JSON 语法、envelope 缺失、角色不匹配等具体原因修复输出。
+- B-P1-2：重试提示仍只要求修复 JSON 格式和 AgentOutput envelope，不把完整坏响应塞回 prompt，避免扩大上下文和复制错误内容。
+- B-P1-2：`tests/smoke.rs` 增加重试修复用例，模型第一次返回缺少 envelope 的合法 JSON，第二次只有看到“上一次解析错误”才返回合法 AgentOutput，确认错误原因确实进入 retry prompt。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+6 passed; 0 failed
+```
+
+当前状态：
+
+- 模型输出失败后的重试链路已能带着具体解析原因进行修复。
+
+## 19. 开发者 A 第九轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：`ModelResponse` 增加可选 `usage`，用于后续接入支持 token 用量的模型 provider。
+- A-P2：`AgentOutput` 增加 `duration_ms` 和 `token_usage`，`run_prompt_agent` 对每次 Agent 尝试计时。
+- A-P2：`agent_runs.structured._engineering` 已保存 `duration_ms` 和 `token_usage`，当前 Rig/OpenAI 路径先记录 `token_usage: null`。
+- A-P2：`tests/smoke.rs` 增加工程元数据落库断言，确认 AgentRun 至少包含耗时字段和 token usage 预留字段。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+6 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+new / outline / write / review / rewrite / export all ok
+export_size=15976
+```
+
+当前状态：
+
+- Agent 执行耗时已进入持久化记录，token 统计接口已预留到模型响应和 AgentRun 元数据。
+
+## 20. 开发者 B 第十轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P0-1 / B-P1-2：`AgentOutput.structured` 现在会按 Agent 角色做最小 schema 校验，合法 envelope 也必须包含该 Agent 的关键顶层字段。
+- B-P1-2：当前最小校验覆盖 `market_analysis/title_candidates/opening_strategy/platform_profile`、`plot_plan/chapter_outlines`、`characters`、`world_setting/facts_to_seed`、`chapter_draft`、`continuity_report`、`styled_chapter`、`review_report`。
+- B-P1-2：缺少必需字段或字段类型不对时会写入 `parse_error`，进入既有重试/fallback 链路。
+- B-P1-2：`tests/smoke.rs` 增加 “envelope 正确但 structured 缺必需字段” 的回归用例，确认内部 schema 缺口会被识别。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+7 passed; 0 failed
+```
+
+当前状态：
+
+- Agent 输出已完成 envelope 严格解析和按角色的最小 `structured` schema 校验。
+
+## 21. 开发者 B 第十一路处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- 真实模型链路 preflight：当前环境未设置 `OPENAI_API_KEY`，无法实际执行 OpenAI 真实模型端到端验收。
+- C-P0-2：`scripts/mvp_demo.ps1 -UseRealModel` 现在会在缺少 `OPENAI_API_KEY` 时提前失败，避免真实模型验收悄悄退回 smoke fallback。
+- C-P0-2：`scripts/mvp_demo.ps1` 会检测 CLI 输出中的 fallback / Agent 调用失败 / 解析失败提示；在 `-UseRealModel` 模式下观察到这些提示会将验收判定为失败。
+- C-P0-1：`docs/INTERFACE_FREEZE.md` 已补充真实模型验收要求：必须有 `OPENAI_API_KEY`，且真实模式不得出现 fallback 输出。
+
+验证结果：
+
+```text
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -UseRealModel
+expected missing OPENAI_API_KEY failure observed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+new / outline / write / review / rewrite / export all ok
+
+cargo test
+7 passed; 0 failed
+```
+
+当前状态：
+
+- 真实模型验收尚未实际调用 API；已补齐缺 key 和 fallback 误通过的防护。设置 `OPENAI_API_KEY` 后可重新执行 `scripts/mvp_demo.ps1 -UseRealModel`。
+
+## 22. 开发者 A 第十轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：新增 `SmokeModelClient`，支持 `provider = "smoke"` 的本地确定性模型 provider。
+- A-P2：`ModelProvider::parse` 支持 `smoke`、`local`、`offline` 别名，CLI 会按配置在 `openai` 与 `smoke` provider 之间切换。
+- A-P2：`SmokeModelClient` 对 Market、Plot、Character、Worldbuilding、Writer、Continuity、Style、Reviewer 返回合法 `AgentOutput` envelope，可用于离线 demo 和 CI，不再依赖“OpenAI 缺 key 后 fallback”来跑通演示。
+- A-P2：`PromptAgent` 已把 `ModelResponse.usage` 传入 `AgentOutput.token_usage`，本地 smoke provider 会写入粗略 token usage，OpenAI/Rig 路径继续保留 `null`。
+- A-P1 / C-P0-2：`scripts/mvp_demo.ps1` 默认使用 `provider = "smoke"`；`-Provider openai` 保留离线 fallback 验证；`-UseRealModel` 仍强制走 OpenAI 且执行 key/fallback preflight。
+- A-P2：`tests/smoke.rs` 增加 provider 解析测试和本地 smoke provider 非 fallback 工作流测试。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+9 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+provider=smoke
+new / outline / write / review / rewrite / export all ok
+export_size=10132
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai
+openai fallback branch ok
+export_size=15976
+```
+
+当前状态：
+
+- A-P2 的模型 provider 切换已落地；默认离线演示走本地合法 Agent 输出，OpenAI fallback 与真实模型 preflight 分支仍保留。
+
+## 23. 开发者 B 第十二轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- 真实模型链路扩展：`ModelProvider` 新增 `deepseek`，CLI 配置可使用 `provider = "deepseek"`。
+- 真实模型链路扩展：`RigModelClient` 接入 `rig_core::providers::deepseek`，使用 `DEEPSEEK_API_KEY` 和 Rig DeepSeek provider 调用模型。
+- C-P0-2：`scripts/mvp_demo.ps1` 支持 `-Provider deepseek`，默认模型为 `deepseek-v4-flash`；`-UseRealModel` 模式按 provider 检查 `OPENAI_API_KEY` 或 `DEEPSEEK_API_KEY`。
+- C-P0-1：`docs/INTERFACE_FREEZE.md` 已补充 OpenAI / DeepSeek 两套真实模型验收命令和 key 要求。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+9 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+provider=smoke
+new / outline / write / review / rewrite / export all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepseek
+deepseek fallback branch ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepseek -UseRealModel
+expected missing DEEPSEEK_API_KEY failure observed in current process
+```
+
+当前状态：
+
+- DeepSeek provider 已接入工程和 demo 脚本；当前 Codex 进程仍未继承到 `DEEPSEEK_API_KEY`，所以尚未实际调用 DeepSeek API。让该环境变量对当前进程可见后，可执行 `scripts/mvp_demo.ps1 -Provider deepseek -UseRealModel` 做真实验收。
+
+## 24. 开发者 A 第十一路处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：`ModelClient` 增加 `complete_stream` 默认方法，并新增 `ModelStreamResponse` / `ModelStreamChunk`，所有 provider 都可通过统一接口返回流式 chunks。
+- A-P2：当前 Rig/OpenAI/DeepSeek 路径暂用完整响应拆块作为 fallback stream；`smoke` provider 同样可通过该接口稳定返回 chunks，后续可替换为 Rig 原生 streaming 实现。
+- A-P2：为避免半截 JSON 污染 Agent workflow，结构化保存仍等待完整 `AgentOutput` 解析成功后执行。
+- A-P2：CLI `write` 和 `rewrite` 增加 `--stream`，对已生成章节正文做分块输出，适合演示和手动验收。
+- A-P1 / C-P0-2：`scripts/mvp_demo.ps1` 增加 `-StreamWrite`，会在 `write` 和 `rewrite` 阶段启用 `--stream`。
+- A-P2：`tests/smoke.rs` 增加本地 smoke provider 流式 chunks 回归测试，确认 chunks 可拼回完整响应且保留 token usage。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+10 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+provider=smoke
+new / outline / write / review / rewrite / export all ok
+export_size=10132
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+export_size=10132
+```
+
+当前状态：
+
+- A-P2 的流式输出能力已落地到模型接口、CLI 参数、demo 脚本和自动测试；真实 provider 原生 streaming 可作为后续增强替换底层实现。
+
+## 25. 开发者 A 第十二轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：`AgentRunRepository` 增加 `list_recent`，支持按 `novel_id` 过滤最近运行记录。
+- A-P2：新增 `AgentRunRecord` 只读结构，包含 role、task、structured、raw_text、raw_notes、parse_error 和 created_at。
+- A-P2：CLI 新增 `runs` 命令，可输出最近 Agent 运行记录的角色、任务、小说 ID、尝试次数、状态、耗时和 token。
+- A-P2：`scripts/mvp_demo.ps1` 已把 `runs --novel-id <id> --limit 5` 纳入默认演示闭环。
+- A-P2：`tests/smoke.rs` 增加 AgentRun 查询断言，确认记录能按小说过滤，并包含 market/reviewer 等关键角色和 `_engineering` 元数据。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+10 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+provider=smoke
+new / outline / write / review / rewrite / export / runs all ok
+export_size=10132
+```
+
+当前状态：
+
+- A-P2 的任务运行记录已从“仅落库”推进到 storage 查询、CLI 可视化、demo 验收和自动测试覆盖。
+
+## 26. 开发者 A 第十三轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A 侧交付收口：新增 `docs/MVP_ACCEPTANCE.md`，作为 CLI MVP 的交付验收入口。
+- C-P0-2：验收说明集中列出离线工程验收命令、流式演示命令、OpenAI/DeepSeek 真实模型验收命令和通过口径。
+- C-P0-2：明确当前环境尚未实际调用真实模型 API；真实 provider 已接入，缺 key 或出现 fallback/解析失败时不得判定为真实验收通过。
+- A/B 协作：README 已挂载 `docs/MVP_ACCEPTANCE.md`，并将当前测试期望更新为 `cargo test 11 passed`。
+
+验证结果：
+
+```text
+文档收口，无代码变更。
+沿用上一轮已通过结果：
+cargo check ok
+cargo test 11 passed; 0 failed
+scripts/mvp_demo.ps1 ok
+scripts/mvp_demo.ps1 -StreamWrite ok
+```
+
+当前状态：
+
+- MVP 离线工程验收已有独立交付说明；后续真实模型验收只需在 key 可见环境运行对应 `-UseRealModel` 命令。
+
+## 27. 开发者 A 第十四轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A 侧提交前复核：发现 `novel-agent.toml.example` 仍默认使用 `openai/gpt-5`，与当前默认离线 smoke 验收口径不一致。
+- C-P0-2：将 `novel-agent.toml.example` 默认 provider 改为 `smoke`，保证新环境不需要 API key 即可跑本地工程验收。
+- C-P0-2：在模板注释中保留 OpenAI 和 DeepSeek 真实 provider 示例，避免真实模型配置入口丢失。
+
+验证结果：
+
+```text
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- 配置模板已与 README、MVP 验收说明和 demo 默认行为对齐。
+
+## 28. 开发者 A 第十五轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A 侧提交前最终复核：按核心代码、CLI/demo/tests、文档验收三组查看 diff，确认可以拆分提交。
+- A 侧提交前最终复核：确认 `.gitignore` 已覆盖 `target/`、SQLite 数据库、`exports/` 和本地 `novel-agent.toml`，当前未跟踪文件均为应纳入交付的新文件。
+- C-P0-2：重新执行最终工程验收，确认当前测试集为 11 个回归用例，默认 demo 和流式 demo 均可跑通。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+11 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+new / outline / write / review / rewrite / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed; runs all ok
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- 提交前复核完成；下一步可按功能拆分提交或由负责人统一提交。
+
+## 29. 开发者 A 第十六轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P1 / C-P0-2：CLI 新增 `versions` 命令，可列出章节版本快照。
+- A-P1 / C-P0-2：`versions --show <v>` 可输出指定版本正文，`versions --from <a> --to <b>` 可输出基础版本对比。
+- A-P1 / C-P0-2：版本对比包含 v1/v2 字数、字数变化、共同前缀字符和正文预览。
+- A-P1 / C-P0-2：`scripts/mvp_demo.ps1` 已在 rewrite 后执行 `versions --from 1 --to 2`，演示闭环现在覆盖版本对比。
+- A/B 协作：README、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md` 已补充 `versions` 命令和验收口径。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+11 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+new / outline / write / review / rewrite / versions / export / runs all ok
+versions: v1/v2 compare observed
+```
+
+当前状态：
+
+- 章节版本快照已从“保存和 repository 测试”推进到 CLI 可查看、可对比、demo 可验收。
+
+## 30. 开发者 A 第十七轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P1 / C-P0-2：CLI 新增 `edit` 命令，可通过 `--input <path>` 读取人工编辑稿并保存为章节新版本。
+- A-P1 / C-P0-2：新增 `ChapterGenerationWorkflow::save_manual_edit`，人工稿复用 `ChapterDraft` / `chapter_versions` 版本通道，不额外调用 Agent。
+- A-P1：保存新草稿时清空旧审稿分数，避免人工 v3 仍挂载 v2 的历史评分；人工稿保存后状态回到 `Drafted`，可继续执行 `review`。
+- A-P1 / C-P0-2：`scripts/mvp_demo.ps1` 已在 rewrite 后写入无 BOM 的人工编辑文件，执行 `edit`，并用 `versions --from 2 --to 3` 验证人工版本对比。
+- A/B 协作：README、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md` 已补充人工编辑版本链路和验收口径。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+12 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+new / outline / write / review / rewrite / versions / edit / versions / export / runs all ok
+versions: v2/v3 manual edit compare observed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed; edit and v2/v3 compare observed
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- 人工介入改稿已进入 MVP 闭环：生成或返工后的章节可由人工编辑保存为 vN，再通过 `versions` 对比、`review` 复审和 `export` 导出。
+
+## 31. 开发者 B DeepSeek 真实链路处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- 真实模型环境复核：当前进程已可读取 `DEEPSEEK_API_KEY`。
+- DeepSeek 实测问题定位：最新 `deepseek-chat` demo 库中，Plot Agent 在 30 章大纲输出时多次出现 `EOF while parsing a string`，属于长 JSON 输出截断；`new` 最终依赖 fallback 大纲保存了 30 章，不能判定为真实模型验收通过。
+- B-P1 / C-P0-2：CLI `new` 新增 `--chapters` 参数，默认仍为 30；真实模型短链路可先生成较少章节，降低 Plot Agent 长 JSON 截断风险。
+- B-P1 / C-P0-2：`NovelCreationWorkflow` 新增 `create_from_idea_with_chapters`，默认 `create_from_idea` 保持 30 章行为。
+- B-P1 / C-P0-2：`scripts/mvp_demo.ps1` 新增 `-NewChapters`、`-OutlineChapters`、`-SkipOutline`、`-SkipRewrite`，默认完整 demo 不变；真实 provider 可先跑短链路。
+- B-P1 / C-P0-2：DeepSeek demo 默认模型调整为 `deepseek-chat`，避免继续默认使用本轮实测不稳定的 `deepseek-v4-flash`。
+- B-P1：新增回归测试，确认创建新书时可限制初始大纲章节数，并只保存对应数量的章节。
+- A/B 协作：README、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md` 已补充短链路验收命令和通过口径。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+12 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+new / outline / write / review / rewrite / versions / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepseek -UseRealModel -NewChapters 6 -SkipOutline -SkipRewrite
+real DeepSeek short path ok
+agent_runs.parse_error = 0
+agent roles ok: market, plot, character, worldbuilding, writer, continuity, style, reviewer
+saved chapters = 6
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- DeepSeek key 已可见；短链路真实 API 验证通过。完整 30 章真实模型验收仍需继续压测或拆分 Plot Agent 输出，避免长 JSON 截断。
+
+## 32. 开发者 A 第十八轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P1 / C-P0-2：`NovelCreationWorkflow` 将 Plot Agent 大纲生成改为分批调用，默认批次大小为 10；demo 默认用 6 章一批，降低真实模型长 JSON 截断风险。
+- A-P1 / C-P0-2：`new --outline-batch-size` 和 `outline --batch-size` 已接入 CLI；`scripts/mvp_demo.ps1` 已接入 `-NewOutlineBatchSize` 与 `-OutlineBatchSize`。
+- A-P1：分批合并支持区间过滤、绝对章号矫正和缺章 fallback；如果模型在 11-20 批次仍从 1 重新编号，工程侧会按批次 offset 归一化为全书章号。
+- A-P1：`SmokeModelClient` 已理解 `chapter_start` / `chapter_end`，离线 provider 和真实 provider 使用同一批次 payload 语义。
+- B 协作：`prompts/plot_agent.md` 与 `docs/SCHEMAS.md` 已补充 Plot 批次输入约定；README、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md` 已更新验收口径。
+- B-P1：新增/更新回归测试，确认短大纲仍只跑一批，13 章按 6 章一批可合并为连续 1-13 章，默认 30 章 smoke 链路无 fallback。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+13 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+new / outline / write / review / rewrite / versions / edit / versions / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed; edit and v2/v3 compare observed
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- Plot Agent 长 JSON 截断问题已完成工程侧拆分修复；本轮未重新调用真实 DeepSeek 完整 30 章链路，后续真实验收应运行默认 `scripts/mvp_demo.ps1 -Provider deepseek -UseRealModel` 并确认 `agent_runs.parse_error = 0`。
+
+## 33. 开发者 A 第十九轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- C-P0-2：`scripts/mvp_demo.ps1` 新增 `-RunsLimit`，默认检查最近 80 条 AgentRun，避免早期 Market/Plot 批次错误被原来的 `runs --limit 5` 漏掉。
+- C-P0-2：真实模型模式下，demo 会扫描 `runs` 输出；发现 `status=fallback` 或 `status=parse_error` 时直接失败。
+- C-P0-2：默认 demo 结果现在输出 `runs_limit=<n>`，便于确认本次验收覆盖范围。
+- A/B 协作：README、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md` 已补充 AgentRun 覆盖检查口径。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+13 passed; 0 failed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+new / outline / write / review / rewrite / versions / edit / versions / export / runs all ok
+runs_limit=80; all listed AgentRun statuses ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed; runs_limit=80; all listed AgentRun statuses ok
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- 真实模型验收防线从“观察终端 fallback 文本 + 最近 5 条 runs”提升为“终端文本 + 最近 80 条 AgentRun 状态检查”。完整真实链路仍需在 key 可见且允许外网/API 调用的环境重跑。
+
+## 34. 开发者 A 第二十轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- C-P0-2：`AgentRunRecord` 新增统一状态判断，按 `parse_error` 优先、其次 `_engineering.will_fallback` 的口径输出 `ok` / `fallback` / `parse_error`。
+- C-P0-2：`runs` CLI 新增 `--summary`，输出 `agent_run_summary total=<n> ok=<n> fallback=<n> parse_error=<n>`。
+- C-P0-2：`runs` CLI 新增 `--fail-on-bad-status`，当最近记录中存在 fallback 或 parse_error 时返回非零退出码。
+- C-P0-2：`scripts/mvp_demo.ps1` 改为在真实模型模式下调用 `runs --summary --fail-on-bad-status`，不再依赖 PowerShell 正则扫描 `runs` 行判定坏状态。
+- C-P0-2：修正 demo 旧文本检测的误报，避免 `fallback=0` / `parse_error=0` 摘要被当成失败提示。
+- A/B 协作：README、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md` 已同步新的 AgentRun 状态检查命令和验收口径。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+storage unit: 1 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=21 ok=21 fallback=0 parse_error=0
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=21 ok=21 fallback=0 parse_error=0
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- AgentRun 验收状态已经从脚本文字扫描下沉到 Rust CLI 退出码；真实完整链路仍需在 key 可见且允许外网/API 调用的环境重跑。
+
+## 35. 开发者 A 第二十一轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P0 / Web P0：新增 `src/api.rs`，接入 axum，提供本地 REST API router。
+- A-P0：CLI 新增 `serve --bind <addr>`，默认可用 `cargo run -- serve --bind 127.0.0.1:3001` 启动 API 服务。
+- A-P0：新增作品 API：`GET /api/novels`、`POST /api/novels`、`GET /api/novels/{novel_id}`。
+- A-P0：新增大纲 API：`POST /api/novels/{novel_id}/outline`。
+- A-P0：新增章节 API：章节列表、章节详情、写章节、审稿、最新审稿报告、重写。
+- A-P0：新增版本 API：版本列表和指定版本正文。
+- A-P0：新增 AgentRun API：`GET /api/novels/{novel_id}/runs?limit=<n>`，复用 CLI 同一套 `ok` / `fallback` / `parse_error` 状态和 summary 口径。
+- A-P0：`NovelRepository` 新增 `list_recent`，支撑作品列表 API。
+- A-P0：新增 `docs/API.md`，给 C 侧提供 OpenAPI 风格接口说明；README、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 已同步 API 入口和状态。
+- A-P1：新增 API smoke test，覆盖新建作品、作品列表、章节生成、审稿和 AgentRun 查询。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 2 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- Web 工作台 P0 API 骨架已落地，C 侧可以开始按 `docs/API.md` 对接作品、章节、审稿、版本和 AgentRun。后续 A 侧可继续补导出 API、CORS 配置和 SSE 流式接口。
+
+## 36. 开发者 A 第二十二轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P1：`ChapterGenerationWorkflow` 新增 `export_markdown_content`，CLI 文件导出和 API 内容导出共用同一份 Markdown 渲染逻辑。
+- A-P1：新增导出 API：`GET /api/novels/{novel_id}/export/markdown`，返回 `format`、`filename` 和完整 Markdown 内容。
+- A-P1：新增章节生成 SSE：`POST /api/novels/{novel_id}/chapters/{chapter_index}/write/stream`。
+- A-P1：新增重写 SSE：`POST /api/novels/{novel_id}/chapters/{chapter_index}/rewrite/stream`。
+- A-P1：SSE 事件名固定为 `started`、`chapter_chunk`、`completed`；`chapter_chunk` data 包含 `operation`、`chapter_index`、`chunk_index`、`text`。
+- A-P1：API router 接入 permissive CORS，支持 Web 工作台本地跨端口开发。
+- A-P1：API smoke test 扩展到 CORS preflight、SSE 响应和 Markdown 导出。
+- A/C 协作：`docs/API.md`、README、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 已同步导出、SSE 和 CORS 口径。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 2 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- Web 工作台 P1 API 能力已补齐导出、SSE 和 CORS；C 侧可以开始接入章节生成进度流、Markdown 导出入口和本地跨端口调试。
+
+## 37. 开发者 A 第二十三轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：`AgentRunRecord` 新增统一的 `attempt`、`duration_ms`、`prompt_tokens`、`completion_tokens`、`total_tokens` 读取方法，避免 CLI 和 API 重复解析 `_engineering`。
+- A-P2：`AgentRunStatusSummary` 新增 `duration_ms_total`、`tokenized_runs`、`prompt_tokens`、`completion_tokens`、`total_tokens` 汇总字段。
+- A-P2：`runs --summary` 输出新增耗时和 token 汇总，运行面板可直接读取 CLI 结果做人工验收。
+- A-P2：AgentRun API summary 同步返回耗时和 token 汇总；单条 run 继续返回 `attempt`、`duration_ms`、`total_tokens`。
+- A-P2：storage unit test 和 API smoke test 已覆盖 token 汇总字段。
+- A/C 协作：`docs/API.md`、README、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 已同步 AgentRun 汇总口径。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 2 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23 prompt_tokens=53120 completion_tokens=17729 total_tokens=70849
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23 prompt_tokens=53120 completion_tokens=17729 total_tokens=70849
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- AgentRun 已具备状态、耗时和 token 汇总，足够支撑 C 侧运行面板的 P1 展示；真实 cost 统计仍需后续补 provider 价格配置后再计算。
+
+## 38. 开发者 A 第二十四轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P1：新增 `scripts/api_demo.ps1`，使用临时配置和临时 SQLite 启动本地 `serve`，自动调用 CORS、作品创建、作品列表、章节生成、审稿、SSE、Markdown 导出和 AgentRun 查询。
+- A-P1：API demo 支持 `smoke` / `openai` / `deepseek` provider 参数；真实模式沿用 key preflight，默认离线 smoke 不访问网络。
+- A-P1：API demo 会自动寻找空闲端口、等待 `/health` 就绪，并在结束时停止临时 API 进程。
+- A-P1：修复 `draft_from_agent_output` 身份字段信任模型输出的问题；`chapter_id`、`novel_id`、`volume_index`、`chapter_index` 现在以 storage 中的目标章节为准，避免模型或 smoke provider 返回 `chapter_index=1` 时覆盖用户请求的第 2 章。
+- A-P1：API smoke test 增加 `write/stream` 的 `chapter_index=2` 断言，防止章节身份回归。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 已同步 API demo 命令和验收口径。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 2 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23 prompt_tokens=53110 completion_tokens=17729 total_tokens=70839
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23 prompt_tokens=53120 completion_tokens=17729 total_tokens=70849
+```
+
+当前状态：
+
+- API demo 配置已落地，C 侧可用单条脚本验证本地后端接口；章节生成 workflow 已防止模型输出覆盖目标章节身份。
+
+## 39. 开发者 B 真实模型与 xhigh 处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P1 / C-P0-2：DeepSeek 完整真实链路已重新压测通过；默认 30 章新建、重复 outline、write、review、rewrite、versions、edit、export、runs 全流程返回 `agent_run_summary total=23 ok=23 fallback=0 parse_error=0`。
+- B-P1 / C-P0-2：确认本地 `cliproxyapi` 端口 `127.0.0.1:8317` 可用，`/v1/models` 返回 `gpt-5.4`、`gpt-5.4-mini`、`gpt-5.5` 等模型；`chat/completions` 可正常返回。
+- B-P1 / C-P0-2：确认 `gpt-5.5` 支持 `reasoning_effort = "xhigh"` 和 `reasoning = { effort = "xhigh" }` 两种 OpenAI-compatible 参数形式。
+- B-P1：`ModelConfig` 新增可选 `reasoning_effort`；`RigModelClient` 会把该字段透传到 OpenAI-compatible provider 的 additional params。
+- B-P1：`scripts/mvp_demo.ps1` 新增 `-ReasoningEffort` 参数，可直接运行 `-Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel`。
+- B-P1：修复 `scripts/mvp_demo.ps1` 临时 TOML 拼接问题，改为按行写入配置，避免 `model` 与 `reasoning_effort` 连在同一行导致 TOML parse error。
+- B-P1：真实模型调用超时放宽，结构类 Agent 为 240 秒，Plot/Writer/Style 为 300 秒，避免 `gpt-5.5 + xhigh` 在 Character Agent 阶段被过早中断。
+- B-P1：`novel-agent.toml.example`、README、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md` 已同步 OpenAI-compatible 代理和 `gpt-5.5 + xhigh` 用法。
+- B-P1：`docs/SCHEMAS.md` 已补充 Worldbuilding Agent 输入 `scope` 约束；`prompts/worldbuilding_agent.md` 已限制 organizations、locations 和 seed facts 的规模，降低真实模型百科式展开风险。
+- A/B 协作：修复 `src/api.rs` 缺少 `JobsResponse` / `JobResponse` 导致 `cargo test` 编译失败的问题，并统一 API 默认 Plot batch 为 5。
+
+验证结果：
+
+```text
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 2 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider deepseek -UseRealModel -StepRetries 1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=613501
+
+cliproxyapi /v1/models
+models_ok=true; model_count=5; includes gpt-5.5
+
+cliproxyapi chat/completions gpt-5.5 reasoning_effort=xhigh
+reply=OK
+
+cargo run -- --config <temp> new ... --chapters 1 --outline-batch-size 1
+provider=openai; model=gpt-5.5; reasoning_effort=xhigh
+exit_code=0
+agent_runs=4; fallback=0; parse_error=0; duration_ms_total=406814
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -SkipOutline -SkipRewrite
+agent_run_summary total=13 ok=13 fallback=0 parse_error=0
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -ReasoningEffort xhigh -SkipOutline -SkipRewrite
+agent_run_summary total=13 ok=13 fallback=0 parse_error=0
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- 真实 DeepSeek 完整链路已从“待重新压测”变为“通过”；本地 OpenAI-compatible 代理可作为 `openai` provider 使用，当前推荐命令为 `-Model gpt-5.5 -ReasoningEffort xhigh`。
+
+## 39. 开发者 A 第二十五轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：新增进程内后台任务队列，API 可创建 `create_novel`、`write_chapter`、`review_chapter`、`rewrite_chapter` 异步任务。
+- A-P2：新增 `GET /api/jobs?limit=<n>` 和 `GET /api/jobs/{job_id}`，任务状态固定为 `queued`、`running`、`succeeded`、`failed`。
+- A-P2：任务成功后的 `result` 复用同步接口同形 DTO，例如写作和重写返回 `{ "draft": {} }`，审稿返回 `{ "report": {} }`。
+- A-P2：API smoke test 覆盖 `POST /write/jobs`、任务轮询成功和 job 列表查询。
+- A-P2：`scripts/api_demo.ps1` 已覆盖后台任务创建、轮询、结果章节身份检查和 job 列表查询。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 已同步后台任务接口和 MVP in-process 边界。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 2 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / jobs / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23 prompt_tokens=53120 completion_tokens=17729 total_tokens=70849
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23 prompt_tokens=53120 completion_tokens=17729 total_tokens=70849
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- 后台任务队列已完成 MVP 级 API 暴露和脚本验收；当前实现为单进程内存队列，足够支持 Web 工作台 P1 的非阻塞生成状态，后续若要跨进程或重启恢复，应升级为 SQLite 持久化 job 表。
+
+## 40. 开发者 A 第二十六轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：后台任务记录从进程内 `HashMap` 下沉到 SQLite `api_jobs` 表。
+- A-P2：新增 `JobRepository`、`JobRecord`、`JobStatus`，支持创建任务、查询单个任务、查询最近任务和更新 `queued/running/succeeded/failed` 状态。
+- A-P2：`src/api.rs` 移除内存 `JobStore`，`POST /jobs` 创建后立即落库，后台 `tokio::spawn` 写回任务状态、结果或错误。
+- A-P2：API smoke test 增加“重建 router 后仍可查询已完成 job”的断言，覆盖服务状态刷新后的任务记录可见性。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 已同步 SQLite job 记录边界。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 2 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / jobs / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- 后台任务已具备 SQLite 历史记录能力，完成/失败任务可在服务重启后查询；MVP 暂不恢复进程退出时仍在运行的任务，后续可补 job recovery 或 worker loop。
+
+## 41. 开发者 A 第二十七轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：`api_jobs` 新增 `payload` 字段，保存创建任务时的请求参数，便于 Web 工作台展示任务上下文和做重试预填。
+- A-P2：`SqliteStorage::migrate` 增加旧表兼容逻辑；已有 `api_jobs` 表缺少 `payload` 列时会自动补列。
+- A-P2：`serve` 启动前会把上次进程遗留的 `queued` / `running` 任务标记为 `failed`，避免 UI 永久等待不会再执行的任务。
+- A-P2：Storage 单元测试覆盖旧 `api_jobs` 表补 `payload`、任务 payload 持久化，以及遗留未完成任务收口为 failed。
+- A-P2：API smoke test 和 `scripts/api_demo.ps1` 已覆盖 job payload 的 `chapter_index`。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 已同步 job payload 和遗留任务收口规则。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / jobs(payload) / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- 后台任务已具备持久化 payload 和中断收口能力；下一步若继续增强，可基于 payload 实现显式 `POST /api/jobs/{job_id}/retry` 或真正的 worker recovery。
+
+## 42. 开发者 A 第二十八轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：新增 `POST /api/jobs/{job_id}/retry`，支持基于 failed 源任务的 `payload` 创建新的重试 job。
+- A-P2：retry 不覆盖原任务记录，便于 Web 工作台展示失败历史和新重试任务。
+- A-P2：重试逻辑复用 create/write/review/rewrite job 的同一后台执行路径，避免普通创建和重试创建行为漂移。
+- A-P2：API smoke test 覆盖 failed `write_chapter` job retry 创建新 job 并执行成功；非 failed job retry 返回 `400 Bad Request`。
+- A-P2：`scripts/api_demo.ps1` 覆盖 completed job retry 被拒绝，防止 UI 误把已完成任务重复提交。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 已同步 retry 接口和边界。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / jobs / retry-completed-400 / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- Web 工作台现在可以对失败任务做一键重试；下一步可继续补批量章节 job、job 取消接口，或把 retry 关系字段化为 `source_job_id`。
+
+## 43. 开发者 A 第二十九轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：`api_jobs` 和 `JobRecord` 增加 `source_job_id`，普通任务为 `null`，retry 新任务指向源失败任务。
+- A-P2：`POST /api/jobs/{job_id}/retry` 现在通过 `create_with_source` 创建新 job，保留原失败任务并显式记录来源关系。
+- A-P2：`SqliteStorage::migrate` 增加旧表兼容逻辑；已有 `api_jobs` 表缺少 `payload` 或 `source_job_id` 列时会自动补列，并在补列后创建来源索引。
+- A-P2：Storage 单元测试覆盖旧表补 `payload` / `source_job_id`、来源关系持久化，以及遗留 `queued` / `running` 任务收口为 `failed`。
+- A-P2：API smoke test 覆盖 failed `write_chapter` job retry 创建带 `source_job_id` 的新 job 并执行成功。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 和 `scripts/api_demo.ps1` 已同步 `source_job_id` 字段语义。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / jobs(source_job_id) / retry-completed-400 / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- Web 工作台可以直接用 `source_job_id` 串起失败任务和重试任务；下一步可继续补 job 取消接口或批量章节 job。
+
+## 44. 开发者 A 第三十轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：新增 `POST /api/jobs/{job_id}/cancel`，支持取消 `queued` / `running` 后台任务。
+- A-P2：`JobStatus` 增加终态 `cancelled`，取消后保留 `payload` / `source_job_id`，`result` 清空，`error` 写入取消原因。
+- A-P2：后台 worker 的 `set_running` / `complete` / `fail` 写回现在只允许从未完成态推进，避免 cancelled 终态被后续完成或失败结果覆盖。
+- A-P2：API smoke test 覆盖 queued job cancel 成功、二次 cancel 返回 `400 Bad Request`、completed job cancel 返回 `400 Bad Request`。
+- A-P2：Storage 单元测试覆盖 cancelled job 不会被 `set_running` / `complete` 覆盖。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 和 `scripts/api_demo.ps1` 已同步 cancel 接口和 `cancelled` 状态。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / jobs(source_job_id) / retry-completed-400 / cancel-completed-400 / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- Web 工作台现在可以对未完成任务执行取消；下一步可继续补批量章节 job。
+
+## 45. 开发者 B xhigh 与 SQLite 迁移回归处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P1：修复旧 `api_jobs` 表迁移顺序问题；`idx_api_jobs_source_job_id` 现在会在补齐 `source_job_id` 列之后创建，避免旧库迁移时报 `no such column: source_job_id`。
+- B-P1：Storage 回归测试同步断言遗留 `running` 源 job 和 `queued` retry job 都会被 `fail_incomplete` 标记为 `failed`，与 `serve` 重启收口语义一致。
+- B-P1 / C-P0-2：重新验证本地 OpenAI-compatible `cliproxyapi` 的 `gpt-5.5 + reasoning_effort=xhigh` 快速真实链路。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 13 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 2 -OutlineChapters 2 -NewOutlineBatchSize 1 -OutlineBatchSize 1 -SkipOutline -SkipRewrite
+最终 agent_run_summary total=10 ok=10 fallback=0 parse_error=0 duration_ms_total=884815
+export_size=14132
+```
+
+备注：
+
+- 本次 `xhigh` 快速链路中 `write` 步骤首次子命令返回 `exit code -1`，demo 脚本自动重试后成功；落库 AgentRun 全部为 `ok`，未出现 fallback 或 parse error。
+- 这次结果可确认 provider、AgentOutput 解析、SQLite 迁移和 AgentRun 汇总链路可用；后续第 46 轮已完成 `-StepRetries 0` 的严格短链路验收。
+
+## 46. 开发者 B xhigh 无重试验收补强记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P1：AgentOutput 解析增强为“优先 fenced JSON；否则从首个 `{` 做括号配平，提取完整 JSON 对象”，可接受真实模型直接输出 JSON 后追加说明文本的情况。
+- B-P1：新增回归测试 `direct_agent_output_json_with_trailing_text_is_parsed`，确认非 fenced JSON 后带尾巴说明不会再产生 parse error，同时既有缺 envelope / 缺 required field 测试仍保持失败。
+- B-P1：`Character create_novel` 模型调用 timeout 从 240 秒放宽到 360 秒；本地 `gpt-5.5 + xhigh` 曾出现 240 秒边缘超时，放宽后可减少真实高推理模式下的误失败。
+- C-P0-2：`scripts/mvp_demo.ps1` 在 `-UseRealModel` 时会给 `runs` 加 `--fail-on-bad-status`，并补充 `status=parse_error` / `parse_error=<非零>` 文本检测，避免真实验收中 `parse_error=1` 被误判通过。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 14 passed
+
+cargo run --quiet -- --config <bad-xhigh-temp-config> runs --novel-id <bad-xhigh-novel-id> --limit 80 --summary --fail-on-bad-status
+expected failure observed: AgentRun status check failed: fallback=0, parse_error=1 in listed 10 runs
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 2 -OutlineChapters 2 -NewOutlineBatchSize 1 -OutlineBatchSize 1 -SkipOutline -SkipRewrite -StepRetries 0
+agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=799126
+export_size=15722
+```
+
+当前状态：
+
+- `gpt-5.5 + reasoning_effort=xhigh` 已完成 2 章快速真实链路无重试验收，且真实 demo 现在会严格拒绝 fallback / parse_error。
+- 后续如继续压测，建议优先跑 6 章短链路或默认完整链路，观察长链路耗时和 provider 波动。
+
+## 47. 开发者 B xhigh 6 章压测与 Character 收敛记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- B-P1：`Character create_novel` 输入新增 `scope`，传入 `focus_chapters`、`max_characters`、`max_relationships_per_character`、`max_turning_points_per_character`、`max_plan_items_per_character`，降低真实模型在人物卡阶段百科式展开。
+- B-P1：Character Agent prompt 增加规模约束：最多输出 4 个核心人物，每个人物关系、转折和章节计划都按 scope 限制；字段名仍保持 `chapter_1_to_30_plan`，但内容只覆盖本轮 focus chapters。
+- B-P1：Character Agent 默认 `max_tokens` 从 4000 降到 3000，减少 `gpt-5.5 + xhigh` 在 6 章链路中的输出和推理压力。
+- B 协作：`docs/SCHEMAS.md` 已补充 Character Agent 输入 `scope` 字段说明。
+
+压测观察：
+
+```text
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 6 -OutlineChapters 6 -NewOutlineBatchSize 2 -OutlineBatchSize 2 -SkipOutline -SkipRewrite -StepRetries 0
+失败：new 阶段在 3 个 Plot batch 均 ok 后、Character 未落库前出现 exit code -1。
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -Provider openai -Model gpt-5.5 -ReasoningEffort xhigh -UseRealModel -NewChapters 6 -OutlineChapters 6 -NewOutlineBatchSize 3 -OutlineBatchSize 3 -SkipOutline -SkipRewrite -StepRetries 0
+修复前失败：new 阶段在 2 个 Plot batch 均 ok 后、Character 未落库前出现 exit code -1。
+
+Character scope 收敛后，同一命令推进到 review：
+new ok; write ok; review 首次调用 exit code -1。
+```
+
+分段补验：
+
+```text
+cargo run --quiet -- --config <xhigh-6ch-config> review --novel-id e5cd0a65-1286-4736-9a20-73599517dea1 --chapter 1
+审稿总分: 84
+是否通过: 是
+
+cargo run --quiet -- --config <xhigh-6ch-config> export --novel-id e5cd0a65-1286-4736-9a20-73599517dea1 --format markdown --output <export-after-review.md>
+export_size=19347
+
+cargo run --quiet -- --config <xhigh-6ch-config> runs --novel-id e5cd0a65-1286-4736-9a20-73599517dea1 --limit 80 --summary --fail-on-bad-status
+agent_run_summary total=9 ok=9 fallback=0 parse_error=0 duration_ms_total=700385
+```
+
+当前状态：
+
+- 6 章数据链路和 AgentOutput 质量分段验证通过，未出现 fallback / parse_error。
+- 6 章一次性 demo 脚本仍未稳定通过；当前失败更像本地 `cliproxyapi/gpt-5.5 xhigh` 偶发子进程中断，而非业务解析或存储问题。
+- 下一步建议继续做 6 章一次性脚本复跑，或在 demo 层为真实 provider 子进程级 `exit code -1` 引入更明确的阶段日志/可恢复检查点。
+
+## 46. 开发者 A 第三十一轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：新增 `POST /api/novels/{novel_id}/chapters/write/jobs`，支持 Web 工作台一次提交章节范围并后台顺序生成多章。
+- A-P2：批量写作 job kind 为 `write_chapters`，`payload` 保存 `chapter_start`、`chapter_end` 和 `chapter_indexes`，成功 `result` 返回 `chapter_start`、`chapter_end` 和 `drafts`。
+- A-P2：批量 job 复用单章 `ChapterGenerationWorkflow::write_chapter`，每章仍保留正文、版本、连续性报告、Style 结果和 facts 写入。
+- A-P2：批量 job 支持 `retry` 和 `cancel`；retry 会用 `source_job_id` 指向源失败任务，cancel 后不会再开始下一章，也不会覆盖 `cancelled` 终态。
+- A-P2：API smoke test 覆盖批量 job 成功、批量 job retry 成功和 `source_job_id` 来源关系。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 和 `scripts/api_demo.ps1` 已同步批量章节 job 接口。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 14 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / jobs(source_job_id) / batch-jobs / retry-completed-400 / cancel-completed-400 / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- Web 工作台可以直接创建、轮询、取消和重试批量章节写作任务；下一步可继续补任务进度字段或章节范围 UI 所需的更细粒度进度。
+
+## 47. 开发者 A 第三十二轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：`api_jobs` 和 `JobRecord` 增加 `progress_current` / `progress_total`，用于 Web 工作台展示后台任务进度。
+- A-P2：普通 job 默认 `0/1`，成功后自动写回 `1/1`；批量章节 job 创建时 `progress_total` 为章节数量，每完成一章推进 `progress_current`。
+- A-P2：旧 `api_jobs` 表迁移会自动补 progress 列，并把既有 `succeeded` 任务回填为完成进度。
+- A-P2：`JobRepository::set_progress` 只允许更新 `running` job；失败或取消会保留当前进度，完成写回不会覆盖 cancelled 终态。
+- A-P2：API smoke test 覆盖单章 job、批量 job、retry job 的进度字段；Storage 单元测试覆盖批量进度推进和完成回填。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 和 `scripts/api_demo.ps1` 已同步 job progress 字段。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 14 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / jobs(progress) / batch-jobs(progress) / retry-completed-400 / cancel-completed-400 / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- Web 工作台可以直接用 `progress_current/progress_total` 展示单章、批量、重试和取消任务的进度。
+
+## 48. 开发者 A 第三十三轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：`GET /api/jobs` 增加 `status` / `kind` 可选筛选参数，用于 Web 工作台任务面板查看运行中任务、批量任务或指定类型任务。
+- A-P2：非法 `status` 会复用统一错误响应返回 `400 Bad Request`，避免 UI 静默拿到空列表。
+- A-P2：`JobRepository` 增加 `list_recent_filtered`，底层查询支持 `status` / `kind` 组合筛选，并新增 `idx_api_jobs_status_kind_updated_at` 索引。
+- A-P2：API smoke test 覆盖 `status=succeeded&kind=write_chapters` 和非法 status；Storage 单元测试覆盖 repository 层筛选。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 和 `scripts/api_demo.ps1` 已同步 jobs 列表筛选。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 14 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / jobs(filter) / batch-jobs / retry-completed-400 / cancel-completed-400 / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- Web 工作台可以直接按状态和任务类型筛选 job 列表；下一步可继续补任务面板的更细筛选，例如 novel_id 或 source_job_id。
+
+## 49. 开发者 A 第三十四轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：`GET /api/jobs` 增加 `novel_id` / `source_job_id` 可选筛选参数，用于 Web 工作台任务面板查看当前作品任务和某个失败任务的 retry 链。
+- A-P2：`JobRepository::list_recent_filtered` 扩展为支持 `status` / `kind` / `novel_id` / `source_job_id` 组合筛选。
+- A-P2：SQLite 迁移增加 `idx_api_jobs_novel_id_updated_at` 索引，并继续保留 `idx_api_jobs_source_job_id`，支撑作品维度和来源维度查询。
+- A-P2：API smoke test 覆盖 `novel_id` 筛选、`novel_id + source_job_id` 组合筛选；Storage 单元测试覆盖 repository 层作品筛选和 retry 来源筛选。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 和 `scripts/api_demo.ps1` 已同步 jobs 细粒度筛选能力。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 14 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / write / review / SSE / jobs(filter + novel_id) / batch-jobs / retry-completed-400 / cancel-completed-400 / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+git diff --check
+ok，仅有 LF/CRLF 提示
+```
+
+当前状态：
+
+- Web 工作台可以直接按任务状态、类型、作品和 retry 来源筛选 job 列表；任务面板可以分别呈现“当前作品任务”和“某失败任务的重试链”。
+
+## 50. 开发者 A 第三十五轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：新增 `GET /api/novels/{novel_id}/facts?limit=<n>`，用于 Web 工作台独立查询作品事实表和伏笔/事实侧栏数据。
+- A-P2：新增 `GET /api/novels/{novel_id}/chapters/{chapter_index}/continuity`，返回指定章节最新 Continuity Agent 结构化报告。
+- A-P2：新增 `FactsResponse` / `LatestContinuityResponse`，保持 facts 使用 domain `Fact`，continuity report 保持原始结构化 JSON，避免和 Prompt schema 分叉。
+- A-P2：API smoke test 覆盖 facts 列表和章节最新连续性报告查询；API demo 覆盖 HTTP facts / continuity 调用。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md` 和 `docs/WORKPLAN.md` 已同步 facts / continuity 只读 API。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 14 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / facts / write / continuity / review / SSE / jobs(filter + novel_id) / batch-jobs / retry-completed-400 / cancel-completed-400 / export / runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+```
+
+当前状态：
+
+- Web 工作台可以直接读取作品事实表和章节连续性报告；事实/伏笔面板与连续性侧栏不再必须依赖整份作品详情接口。

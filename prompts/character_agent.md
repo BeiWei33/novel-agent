@@ -12,7 +12,14 @@
   "market_analysis": {},
   "plot_plan": {},
   "target_platform": "qidian | fanqie | general",
-  "existing_characters": []
+  "existing_characters": [],
+  "scope": {
+    "focus_chapters": 6,
+    "max_characters": 4,
+    "max_relationships_per_character": 2,
+    "max_turning_points_per_character": 3,
+    "max_plan_items_per_character": 4
+  }
 }
 ```
 
@@ -22,11 +29,19 @@
 2. 为每个角色定义欲望、动机、秘密、能力边界和成长弧。
 3. 确保重要角色不是工具人，至少有自己的目标。
 4. 为后续一致性检查提供可追踪的人物状态。
-5. 标出人物在前 30 章里的出场和变化计划。
+5. 标出人物在 `scope.focus_chapters` 范围内的出场和变化计划；不要展开超出本轮范围的长篇百科。
 
 ## 输出要求
 
 只输出 JSON，字段必须完整。不要输出 Markdown。
+
+规模约束：
+
+- `characters` 数量不超过 `scope.max_characters`，优先输出主角、主要阻力人物、最关键配角。
+- 每个角色 `relationship_map` 不超过 `scope.max_relationships_per_character` 条。
+- 每个角色 `arc.turning_points` 不超过 `scope.max_turning_points_per_character` 条。
+- 每个角色 `chapter_1_to_30_plan` 不超过 `scope.max_plan_items_per_character` 条；字段名保持不变，但内容只写本轮 `scope.focus_chapters` 范围内的作用。
+- 各字段用短句，不要输出人物小传、背景百科或完整章节梗概。
 
 ```json
 {

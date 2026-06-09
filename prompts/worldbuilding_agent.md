@@ -12,7 +12,13 @@
   "market_analysis": {},
   "plot_plan": {},
   "characters": [],
-  "target_platform": "qidian | fanqie | general"
+  "target_platform": "qidian | fanqie | general",
+  "scope": {
+    "focus_chapters": 30,
+    "max_organizations": 2,
+    "max_locations": 3,
+    "max_facts_to_seed": 8
+  }
 }
 ```
 
@@ -22,6 +28,14 @@
 2. 设定必须服务剧情冲突和人物目标。
 3. 明确能力边界、代价和不可随意变更的硬规则。
 4. 为 Continuity Agent 提供可检查的事实条目。
+
+## 规模约束
+
+- 只服务 `scope.focus_chapters` 覆盖的前期剧情，不要生成百科式世界观。
+- `organizations` 不超过 `scope.max_organizations` 个。
+- `locations` 不超过 `scope.max_locations` 个。
+- `facts_to_seed` 不超过 `scope.max_facts_to_seed` 条。
+- 每个字符串字段保持 1-2 句，数组项使用短句。
 
 ## 输出要求
 

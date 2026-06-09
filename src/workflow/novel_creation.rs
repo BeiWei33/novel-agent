@@ -2,14 +2,14 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::agent_runner::run_prompt_agent;
-use crate::agents::{AgentRole, AgentTask, ModelHandle};
+use crate::agents::{AgentOutput, AgentRole, AgentTask, ModelHandle};
 use crate::domain::{
     Chapter, ChapterOutline, CharacterArc, CharacterCard, CharacterId, CharacterRelationship,
     FactTriple, Novel, NovelBible, NovelId, OpeningStrategy, PlatformProfile, TargetPlatform,
     TitleCandidate,
 };
 use crate::error::WorkflowError;
-use crate::storage::SqliteStorage;
+use crate::storage::{AgentRunRecord, AgentRunStatus, SqliteStorage};
 
 pub struct NovelCreationWorkflow<'a> {
     storage: &'a SqliteStorage,
@@ -24,6 +24,8 @@ pub struct NovelCreationResult {
     pub outlines: Vec<ChapterOutline>,
     pub used_fallback: bool,
 }
+
+const DEFAULT_OUTLINE_BATCH_SIZE: u32 = 5;
 
 const MARKET_AGENT_PROMPT: &str = include_str!("../../prompts/market_agent.md");
 const PLOT_AGENT_PROMPT: &str = include_str!("../../prompts/plot_agent.md");
@@ -40,45 +42,139 @@ impl<'a> NovelCreationWorkflow<'a> {
         idea: &str,
         platform: TargetPlatform,
     ) -> Result<NovelCreationResult, WorkflowError> {
-        let mut novel = Novel::draft(infer_title(idea), infer_genre(idea), platform);
-        self.storage.novels().insert(&novel).await?;
+        self.create_from_idea_with_chapters(idea, platform, 30)
+            .await
+    }
 
-        let market_output = run_prompt_agent(
-            self.storage,
-            self.model.clone(),
-            Some(&novel.id),
-            AgentRole::Market,
-            AgentTask::CreateNovel,
-            MARKET_AGENT_PROMPT,
-            json!({
-                "idea": idea,
-                "target_platform": platform.as_str(),
-                "genre_hint": novel.genre.clone(),
-                "constraints": []
-            }),
+    pub async fn create_from_idea_with_chapters(
+        &self,
+        idea: &str,
+        platform: TargetPlatform,
+        chapters: u32,
+    ) -> Result<NovelCreationResult, WorkflowError> {
+        self.create_from_idea_with_outline_batch_size(
+            idea,
+            platform,
+            chapters,
+            DEFAULT_OUTLINE_BATCH_SIZE,
         )
-        .await?;
+        .await
+    }
+
+    pub async fn create_from_idea_with_outline_batch_size(
+        &self,
+        idea: &str,
+        platform: TargetPlatform,
+        chapters: u32,
+        outline_batch_size: u32,
+    ) -> Result<NovelCreationResult, WorkflowError> {
+        self.create_or_resume_from_idea_with_outline_batch_size(
+            None,
+            idea,
+            platform,
+            chapters,
+            outline_batch_size,
+        )
+        .await
+    }
+
+    pub async fn resume_from_idea_with_outline_batch_size(
+        &self,
+        novel_id: &NovelId,
+        idea: &str,
+        chapters: u32,
+        outline_batch_size: u32,
+    ) -> Result<NovelCreationResult, WorkflowError> {
+        let novel = self
+            .storage
+            .novels()
+            .find(novel_id)
+            .await?
+            .ok_or_else(|| WorkflowError::NovelNotFound(novel_id.to_string()))?;
+        self.create_or_resume_from_idea_with_outline_batch_size(
+            Some(novel_id),
+            idea,
+            novel.target_platform,
+            chapters,
+            outline_batch_size,
+        )
+        .await
+    }
+
+    async fn create_or_resume_from_idea_with_outline_batch_size(
+        &self,
+        resume_novel_id: Option<&NovelId>,
+        idea: &str,
+        platform: TargetPlatform,
+        chapters: u32,
+        outline_batch_size: u32,
+    ) -> Result<NovelCreationResult, WorkflowError> {
+        let target_chapters = chapters.max(1);
+        let outline_batch_size = outline_batch_size.max(1);
+        let mut novel = if let Some(novel_id) = resume_novel_id {
+            self.storage
+                .novels()
+                .find(novel_id)
+                .await?
+                .ok_or_else(|| WorkflowError::NovelNotFound(novel_id.to_string()))?
+        } else {
+            let novel = Novel::draft(infer_title(idea), infer_genre(idea), platform);
+            self.storage.novels().insert(&novel).await?;
+            novel
+        };
+        let previous_runs = self
+            .storage
+            .agent_runs()
+            .list_recent(Some(&novel.id), 120)
+            .await?;
+
+        let market_output = if let Some(output) =
+            previous_agent_output(&previous_runs, AgentRole::Market, AgentTask::CreateNovel)
+        {
+            output
+        } else {
+            run_prompt_agent(
+                self.storage,
+                self.model.clone(),
+                Some(&novel.id),
+                AgentRole::Market,
+                AgentTask::CreateNovel,
+                MARKET_AGENT_PROMPT,
+                json!({
+                    "idea": idea,
+                    "target_platform": platform.as_str(),
+                    "genre_hint": novel.genre.clone(),
+                    "constraints": []
+                }),
+            )
+            .await?
+        };
         if let Some(title) = first_title_candidate(&market_output.structured) {
             novel.title = title;
         }
 
-        let plot_output = run_prompt_agent(
-            self.storage,
-            self.model.clone(),
-            Some(&novel.id),
-            AgentRole::Plot,
-            AgentTask::GenerateOutline,
-            PLOT_AGENT_PROMPT,
-            json!({
-                "idea": idea,
-                "market_analysis": market_output.structured.get("market_analysis").cloned().unwrap_or_else(|| json!({})),
-                "target_platform": platform.as_str(),
-                "target_chapters": 30,
-                "known_constraints": []
-            }),
-        )
-        .await?;
-        let character_output = run_prompt_agent(
+        let seed_plot = plot_generation_from_agent_runs(&novel.id, &previous_runs, target_chapters);
+        let plot_generation = self
+            .generate_plot_outline_batches_with_seed(
+                &novel.id,
+                idea,
+                market_output
+                    .structured
+                    .get("market_analysis")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+                platform,
+                target_chapters,
+                outline_batch_size,
+                seed_plot,
+            )
+            .await?;
+        let character_output = if let Some(output) =
+            previous_agent_output(&previous_runs, AgentRole::Character, AgentTask::CreateNovel)
+        {
+            output
+        } else {
+            run_prompt_agent(
             self.storage,
             self.model.clone(),
             Some(&novel.id),
@@ -88,16 +184,31 @@ impl<'a> NovelCreationWorkflow<'a> {
             json!({
                 "idea": idea,
                 "market_analysis": market_output.structured.get("market_analysis").cloned().unwrap_or_else(|| json!({})),
-                "plot_plan": plot_output.structured.get("plot_plan").cloned().unwrap_or_else(|| json!({})),
+                "plot_plan": plot_generation.structured.get("plot_plan").cloned().unwrap_or_else(|| json!({})),
                 "target_platform": platform.as_str(),
-                "existing_characters": []
+                "existing_characters": [],
+                "scope": {
+                    "focus_chapters": target_chapters,
+                    "max_characters": 4,
+                    "max_relationships_per_character": 2,
+                    "max_turning_points_per_character": 3,
+                    "max_plan_items_per_character": 4
+                }
             }),
         )
-        .await?;
+            .await?
+        };
         let provisional_characters =
             characters_from_agent_output(&novel, &character_output.structured)
                 .unwrap_or_else(|| draft_characters(&novel, idea));
-        let worldbuilding_output = run_prompt_agent(
+        let worldbuilding_output = if let Some(output) = previous_agent_output(
+            &previous_runs,
+            AgentRole::Worldbuilding,
+            AgentTask::CreateNovel,
+        ) {
+            output
+        } else {
+            run_prompt_agent(
             self.storage,
             self.model.clone(),
             Some(&novel.id),
@@ -107,18 +218,24 @@ impl<'a> NovelCreationWorkflow<'a> {
             json!({
                 "idea": idea,
                 "market_analysis": market_output.structured.get("market_analysis").cloned().unwrap_or_else(|| json!({})),
-                "plot_plan": plot_output.structured.get("plot_plan").cloned().unwrap_or_else(|| json!({})),
-                "characters": provisional_characters,
-                "target_platform": platform.as_str()
+                "plot_plan": plot_generation.structured.get("plot_plan").cloned().unwrap_or_else(|| json!({})),
+                "characters": worldbuilding_character_context(&provisional_characters),
+                "target_platform": platform.as_str(),
+                "scope": {
+                    "focus_chapters": target_chapters,
+                    "max_organizations": 2,
+                    "max_locations": 3,
+                    "max_facts_to_seed": 8
+                }
             }),
         )
-        .await?;
+            .await?
+        };
         let used_fallback = market_output.will_fallback
-            || plot_output.will_fallback
+            || plot_generation.used_fallback
             || character_output.will_fallback
             || worldbuilding_output.will_fallback
             || market_output.parse_error.is_some()
-            || plot_output.parse_error.is_some()
             || character_output.parse_error.is_some()
             || worldbuilding_output.parse_error.is_some();
 
@@ -126,12 +243,11 @@ impl<'a> NovelCreationWorkflow<'a> {
             &novel,
             idea,
             &market_output.structured,
-            &plot_output.structured,
+            &plot_generation.structured,
         )
         .unwrap_or_else(|| draft_bible(&novel, idea));
         let characters = provisional_characters;
-        let outlines = outlines_from_agent_output(&novel.id, &plot_output.structured)
-            .unwrap_or_else(|| draft_outlines(&novel.id, idea, 30));
+        let outlines = plot_generation.outlines;
 
         self.storage.novels().insert(&novel).await?;
         self.storage.novels().save_bible(&bible).await?;
@@ -184,6 +300,17 @@ impl<'a> NovelCreationWorkflow<'a> {
         novel_id: &NovelId,
         chapters: u32,
     ) -> Result<Vec<ChapterOutline>, WorkflowError> {
+        self.generate_outline_with_batch_size(novel_id, chapters, DEFAULT_OUTLINE_BATCH_SIZE)
+            .await
+    }
+
+    pub async fn generate_outline_with_batch_size(
+        &self,
+        novel_id: &NovelId,
+        chapters: u32,
+        outline_batch_size: u32,
+    ) -> Result<Vec<ChapterOutline>, WorkflowError> {
+        let outline_batch_size = outline_batch_size.max(1);
         let novel = self
             .storage
             .novels()
@@ -197,24 +324,17 @@ impl<'a> NovelCreationWorkflow<'a> {
             .await?
             .map(|bible| bible.premise)
             .unwrap_or_else(|| novel.title.clone());
-        let plot_output = run_prompt_agent(
-            self.storage,
-            self.model.clone(),
-            Some(&novel.id),
-            AgentRole::Plot,
-            AgentTask::GenerateOutline,
-            PLOT_AGENT_PROMPT,
-            json!({
-                "idea": idea,
-                "market_analysis": {},
-                "target_platform": novel.target_platform.as_str(),
-                "target_chapters": chapters,
-                "known_constraints": []
-            }),
-        )
-        .await?;
-        let outlines = outlines_from_agent_output(&novel.id, &plot_output.structured)
-            .unwrap_or_else(|| draft_outlines(&novel.id, &idea, chapters));
+        let outlines = self
+            .generate_plot_outline_batches(
+                &novel.id,
+                &idea,
+                json!({}),
+                novel.target_platform,
+                chapters.max(1),
+                outline_batch_size,
+            )
+            .await?
+            .outlines;
 
         for outline in &outlines {
             let chapter = Chapter::outlined(
@@ -229,6 +349,202 @@ impl<'a> NovelCreationWorkflow<'a> {
 
         Ok(outlines)
     }
+
+    async fn generate_plot_outline_batches(
+        &self,
+        novel_id: &NovelId,
+        idea: &str,
+        market_analysis: Value,
+        target_platform: TargetPlatform,
+        target_chapters: u32,
+        outline_batch_size: u32,
+    ) -> Result<PlotOutlineGeneration, WorkflowError> {
+        self.generate_plot_outline_batches_with_seed(
+            novel_id,
+            idea,
+            market_analysis,
+            target_platform,
+            target_chapters,
+            outline_batch_size,
+            None,
+        )
+        .await
+    }
+
+    async fn generate_plot_outline_batches_with_seed(
+        &self,
+        novel_id: &NovelId,
+        idea: &str,
+        market_analysis: Value,
+        target_platform: TargetPlatform,
+        target_chapters: u32,
+        outline_batch_size: u32,
+        seed: Option<PlotOutlineGeneration>,
+    ) -> Result<PlotOutlineGeneration, WorkflowError> {
+        let target_chapters = target_chapters.max(1);
+        let outline_batch_size = outline_batch_size.max(1);
+        let mut all_outlines = seed
+            .as_ref()
+            .map(|seed| seed.outlines.clone())
+            .unwrap_or_default();
+        all_outlines.retain(|outline| (1..=target_chapters).contains(&outline.chapter_index));
+        all_outlines.sort_by_key(|outline| outline.chapter_index);
+        all_outlines.dedup_by_key(|outline| outline.chapter_index);
+        let mut plot_plan = seed
+            .and_then(|seed| seed.structured.get("plot_plan").cloned())
+            .filter(|value| !value.is_null());
+        let mut used_fallback = false;
+        let mut start = 1;
+
+        while start <= target_chapters {
+            let end = target_chapters.min(start + outline_batch_size - 1);
+            let existing = missing_outline_indices(start, end, &all_outlines).is_empty();
+            if existing {
+                start = end + 1;
+                continue;
+            }
+
+            let batch_size = end - start + 1;
+            let output = run_prompt_agent(
+                self.storage,
+                self.model.clone(),
+                Some(novel_id),
+                AgentRole::Plot,
+                AgentTask::GenerateOutline,
+                PLOT_AGENT_PROMPT,
+                json!({
+                    "idea": idea,
+                    "market_analysis": market_analysis.clone(),
+                    "target_platform": target_platform.as_str(),
+                    "target_chapters": batch_size,
+                    "total_chapters": target_chapters,
+                    "chapter_start": start,
+                    "chapter_end": end,
+                    "known_constraints": [],
+                    "existing_plot_plan": plot_plan.clone().unwrap_or_else(|| json!({})),
+                    "previous_chapter_outlines": outline_context(&all_outlines),
+                    "batch_policy": {
+                        "output_only_this_range": true,
+                        "keep_absolute_chapter_index": true
+                    }
+                }),
+            )
+            .await?;
+
+            if plot_plan.is_none() {
+                plot_plan = output.structured.get("plot_plan").cloned();
+            }
+
+            let mut batch_outlines = if output.parse_error.is_none() {
+                normalize_batch_outlines(novel_id, &output.structured, start, end)
+            } else {
+                Vec::new()
+            };
+
+            let missing = missing_outline_indices(start, end, &batch_outlines);
+            if output.will_fallback || output.parse_error.is_some() || !missing.is_empty() {
+                used_fallback = true;
+            }
+            if !missing.is_empty() {
+                let fallback = draft_outlines_for_indices(novel_id, idea, &missing);
+                batch_outlines.extend(fallback);
+            }
+
+            batch_outlines.sort_by_key(|outline| outline.chapter_index);
+            all_outlines.retain(|outline| !(start..=end).contains(&outline.chapter_index));
+            all_outlines.extend(batch_outlines);
+            all_outlines.sort_by_key(|outline| outline.chapter_index);
+            all_outlines.dedup_by_key(|outline| outline.chapter_index);
+            start = end + 1;
+        }
+
+        all_outlines.sort_by_key(|outline| outline.chapter_index);
+        all_outlines.dedup_by_key(|outline| outline.chapter_index);
+        if all_outlines.len() < target_chapters as usize {
+            let missing = missing_outline_indices(1, target_chapters, &all_outlines);
+            all_outlines.extend(draft_outlines_for_indices(novel_id, idea, &missing));
+            all_outlines.sort_by_key(|outline| outline.chapter_index);
+            used_fallback = true;
+        }
+
+        Ok(PlotOutlineGeneration {
+            structured: combined_plot_structured(
+                plot_plan.unwrap_or_else(|| json!({})),
+                &all_outlines,
+            ),
+            outlines: all_outlines,
+            used_fallback,
+        })
+    }
+}
+
+struct PlotOutlineGeneration {
+    structured: Value,
+    outlines: Vec<ChapterOutline>,
+    used_fallback: bool,
+}
+
+fn previous_agent_output(
+    runs: &[AgentRunRecord],
+    role: AgentRole,
+    task: AgentTask,
+) -> Option<AgentOutput> {
+    let run = runs.iter().find(|run| {
+        run.role == role.as_str() && run.task == task.as_str() && run.status() == AgentRunStatus::Ok
+    })?;
+
+    Some(AgentOutput {
+        role,
+        structured: run.structured.clone(),
+        raw_text: run.raw_text.clone(),
+        parse_error: None,
+        raw_notes: run.raw_notes.clone(),
+        attempt: run.attempt().unwrap_or(1) as u32,
+        will_fallback: false,
+        duration_ms: run.duration_ms(),
+        token_usage: None,
+        artifacts: vec![],
+    })
+}
+
+fn plot_generation_from_agent_runs(
+    novel_id: &NovelId,
+    runs: &[AgentRunRecord],
+    target_chapters: u32,
+) -> Option<PlotOutlineGeneration> {
+    let mut outlines = Vec::new();
+    let mut plot_plan = None;
+
+    for run in runs.iter().rev() {
+        if run.role != AgentRole::Plot.as_str()
+            || run.task != AgentTask::GenerateOutline.as_str()
+            || run.status() != AgentRunStatus::Ok
+        {
+            continue;
+        }
+        if plot_plan.is_none() {
+            plot_plan = run.structured.get("plot_plan").cloned();
+        }
+        outlines.extend(normalize_batch_outlines(
+            novel_id,
+            &run.structured,
+            1,
+            target_chapters,
+        ));
+    }
+
+    outlines.retain(|outline| (1..=target_chapters).contains(&outline.chapter_index));
+    outlines.sort_by_key(|outline| outline.chapter_index);
+    outlines.dedup_by_key(|outline| outline.chapter_index);
+    if outlines.is_empty() {
+        return None;
+    }
+
+    Some(PlotOutlineGeneration {
+        structured: combined_plot_structured(plot_plan.unwrap_or_else(|| json!({})), &outlines),
+        outlines,
+        used_fallback: false,
+    })
 }
 
 fn bible_from_agent_outputs(
@@ -348,6 +664,123 @@ fn outlines_from_agent_output(
         .collect::<Vec<_>>();
 
     (!outlines.is_empty()).then_some(outlines)
+}
+
+fn normalize_batch_outlines(
+    novel_id: &NovelId,
+    structured: &Value,
+    start: u32,
+    end: u32,
+) -> Vec<ChapterOutline> {
+    let Some(outlines) = outlines_from_agent_output(novel_id, structured) else {
+        return Vec::new();
+    };
+    let mut in_range = outlines
+        .iter()
+        .filter(|outline| (start..=end).contains(&outline.chapter_index))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !in_range.is_empty() {
+        in_range.sort_by_key(|outline| outline.chapter_index);
+        in_range.dedup_by_key(|outline| outline.chapter_index);
+        return in_range;
+    }
+
+    let expected = (end - start + 1) as usize;
+    outlines
+        .into_iter()
+        .take(expected)
+        .enumerate()
+        .map(|(offset, mut outline)| {
+            outline.novel_id = novel_id.clone();
+            outline.chapter_index = start + offset as u32;
+            outline
+        })
+        .collect()
+}
+
+fn combined_plot_structured(plot_plan: Value, outlines: &[ChapterOutline]) -> Value {
+    let chapter_outlines = outlines
+        .iter()
+        .map(chapter_outline_to_value)
+        .collect::<Vec<_>>();
+
+    json!({
+        "plot_plan": plot_plan,
+        "chapter_outlines": chapter_outlines
+    })
+}
+
+fn chapter_outline_to_value(outline: &ChapterOutline) -> Value {
+    json!({
+        "volume_index": outline.volume_index,
+        "chapter_index": outline.chapter_index,
+        "title": outline.title,
+        "pov": outline.pov,
+        "goal": outline.goal,
+        "conflict": outline.conflict,
+        "key_events": outline.key_events,
+        "character_changes": outline.character_changes,
+        "new_facts": outline.new_facts,
+        "foreshadowing": outline.foreshadowing,
+        "payoff": outline.payoff,
+        "cliffhanger": outline.cliffhanger,
+        "estimated_word_count": outline.estimated_word_count
+    })
+}
+
+fn outline_context(outlines: &[ChapterOutline]) -> Vec<Value> {
+    outlines
+        .iter()
+        .rev()
+        .take(3)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|outline| {
+            json!({
+                "chapter_index": outline.chapter_index,
+                "title": outline.title,
+                "goal": outline.goal,
+                "cliffhanger": outline.cliffhanger
+            })
+        })
+        .collect()
+}
+
+fn worldbuilding_character_context(characters: &[CharacterCard]) -> Vec<Value> {
+    characters
+        .iter()
+        .take(6)
+        .map(|character| {
+            json!({
+                "id_hint": character.id_hint,
+                "name": character.name,
+                "role": character.role,
+                "identity": character.identity,
+                "desire": character.desire,
+                "motivation": character.motivation,
+                "limitations": limited_strings(&character.limitations, 3),
+                "current_state": character.current_state,
+                "first_appearance_chapter": character.first_appearance_chapter,
+                "chapter_1_to_30_plan": limited_strings(&character.chapter_1_to_30_plan, 3)
+            })
+        })
+        .collect()
+}
+
+fn limited_strings(values: &[String], max: usize) -> Vec<String> {
+    values.iter().take(max).cloned().collect()
+}
+
+fn missing_outline_indices(start: u32, end: u32, outlines: &[ChapterOutline]) -> Vec<u32> {
+    (start..=end)
+        .filter(|index| {
+            !outlines
+                .iter()
+                .any(|outline| outline.chapter_index == *index)
+        })
+        .collect()
 }
 
 fn first_title_candidate(structured: &Value) -> Option<String> {
@@ -593,8 +1026,14 @@ fn draft_characters(novel: &Novel, idea: &str) -> Vec<CharacterCard> {
     ]
 }
 
-fn draft_outlines(novel_id: &NovelId, idea: &str, chapters: u32) -> Vec<ChapterOutline> {
-    (1..=chapters)
+fn draft_outlines_for_indices(
+    novel_id: &NovelId,
+    idea: &str,
+    indices: &[u32],
+) -> Vec<ChapterOutline> {
+    indices
+        .iter()
+        .copied()
         .map(|index| ChapterOutline {
             novel_id: novel_id.clone(),
             volume_index: 1,
