@@ -481,7 +481,8 @@ try {
     if ($null -ne $missingRunSummary) {
         throw "AgentRun API returned a run without output_summary."
     }
-    $writerRuns = Invoke-ApiJson "filtered agent runs" "Get" "/api/novels/$NovelId/runs?limit=20&role=writer&task=generate_chapter&status=ok"
+    $ModelFilter = "provider=$Provider&model=$Model"
+    $writerRuns = Invoke-ApiJson "filtered agent runs" "Get" "/api/novels/$NovelId/runs?limit=20&role=writer&task=generate_chapter&$ModelFilter&status=ok"
     if ($writerRuns.runs.Count -lt 1) {
         throw "Filtered AgentRun API returned no writer generate_chapter runs."
     }
@@ -499,13 +500,17 @@ try {
             throw "Filtered AgentRun API returned missing token metadata."
         }
     }
-    $globalWriterRuns = Invoke-ApiJson "global filtered agent runs" "Get" "/api/runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&status=ok"
+    $globalWriterRuns = Invoke-ApiJson "global filtered agent runs" "Get" "/api/runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&$ModelFilter&status=ok"
     if ($globalWriterRuns.runs.Count -ne $writerRuns.runs.Count) {
         throw "Global filtered AgentRun API returned different count from novel-scoped query."
     }
     $wrongGlobalRun = $globalWriterRuns.runs | Where-Object { $_.novel_id -ne $NovelId -or $_.role -ne "writer" -or $_.task -ne "generate_chapter" -or $_.status -ne "ok" } | Select-Object -First 1
     if ($null -ne $wrongGlobalRun) {
         throw "Global filtered AgentRun API returned unexpected novel/role/task/status."
+    }
+    $missingModelRuns = Invoke-ApiJson "missing model agent runs" "Get" "/api/runs?limit=20&novel_id=$NovelId&provider=$Provider&model=missing-model"
+    if ($missingModelRuns.runs.Count -ne 0 -or $missingModelRuns.summary.total -ne 0) {
+        throw "AgentRun provider/model filters should return no runs for a missing model."
     }
     $RunId = $globalWriterRuns.runs[0].id
     $runDetail = Invoke-ApiJson "agent run detail" "Get" "/api/runs/$RunId"
@@ -518,7 +523,7 @@ try {
     if ($Provider -eq "smoke" -and ($runDetail.run.prompt_tokens -ne $globalWriterRuns.runs[0].prompt_tokens -or $runDetail.run.completion_tokens -ne $globalWriterRuns.runs[0].completion_tokens -or $runDetail.run.total_tokens -ne $globalWriterRuns.runs[0].total_tokens)) {
         throw "AgentRun detail API returned different token metadata."
     }
-    $aliasRuns = Invoke-ApiJson "agent runs alias" "Get" "/api/agent-runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&status=ok"
+    $aliasRuns = Invoke-ApiJson "agent runs alias" "Get" "/api/agent-runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&$ModelFilter&status=ok"
     if ($aliasRuns.runs.Count -ne $globalWriterRuns.runs.Count) {
         throw "AgentRun alias API returned different count from /api/runs."
     }
@@ -526,7 +531,7 @@ try {
     if ($aliasRunDetail.run.id -ne $RunId) {
         throw "AgentRun alias detail API returned wrong run."
     }
-    $runsStream = Invoke-ApiText "agent runs stream" "Get" "/api/agent-runs/stream?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&status=ok"
+    $runsStream = Invoke-ApiText "agent runs stream" "Get" "/api/agent-runs/stream?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&$ModelFilter&status=ok"
     if ($runsStream.Content -notmatch "event: snapshot" -or $runsStream.Content -notmatch $RunId -or $runsStream.Content -notmatch "event: completed") {
         throw "AgentRun stream API did not include snapshot and completed events."
     }

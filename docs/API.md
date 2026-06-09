@@ -529,6 +529,7 @@ POST /api/novels/{novel_id}/export
 ```http
 GET /api/runs?limit=50
 GET /api/runs?limit=50&novel_id=...&role=writer&task=generate_chapter&status=ok
+GET /api/runs?limit=50&provider=openai&model=gpt-5&reasoning_effort=xhigh
 GET /api/runs/{run_id}
 GET /api/runs/stream?limit=50
 GET /api/agent-runs?limit=50
@@ -538,7 +539,7 @@ GET /api/novels/{novel_id}/runs?limit=20
 GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&status=ok
 ```
 
-全局 `GET /api/runs` 可选传 `novel_id`；`GET /api/agent-runs` 是给 Web 工作台保留的兼容别名，查询参数和响应与 `/api/runs` 相同。`/stream` 入口使用同一组查询参数，返回当前筛选结果的 SSE 快照事件，适合 Web 工作台用 fetch-SSE 或重连方式刷新运行面板。作品内 `GET /api/novels/{novel_id}/runs` 固定查当前作品。`role` / `task` / `status` 均为可选筛选参数。`status` 必须是 `ok`、`fallback`、`parse_error` 之一；非法值返回 `400 Bad Request`。`summary` 基于筛选后的 `runs` 计算。`provider` / `model` / `reasoning_effort` 是模型运行元数据；旧记录如果没有保存该元数据，会返回 `null`。`prompt_tokens` / `completion_tokens` / `total_tokens` 来自 provider usage 或 smoke provider 估算；provider 未返回 usage 时会返回 `null`。
+全局 `GET /api/runs` 可选传 `novel_id`；`GET /api/agent-runs` 是给 Web 工作台保留的兼容别名，查询参数和响应与 `/api/runs` 相同。`/stream` 入口使用同一组查询参数，返回当前筛选结果的 SSE 快照事件，适合 Web 工作台用 fetch-SSE 或重连方式刷新运行面板。作品内 `GET /api/novels/{novel_id}/runs` 固定查当前作品。`role` / `task` / `status` / `provider` / `model` / `reasoning_effort` 均为可选筛选参数。`status` 必须是 `ok`、`fallback`、`parse_error` 之一；非法值返回 `400 Bad Request`。`summary` 基于筛选后的 `runs` 计算。`provider` / `model` / `reasoning_effort` 是模型运行元数据；旧记录如果没有保存该元数据，会返回 `null`，也不会命中对应模型元数据筛选。`prompt_tokens` / `completion_tokens` / `total_tokens` 来自 provider usage 或 smoke provider 估算；provider 未返回 usage 时会返回 `null`。
 
 响应：
 

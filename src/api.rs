@@ -924,7 +924,18 @@ async fn agent_runs_response(
         .as_deref()
         .map(parse_agent_run_status)
         .transpose()?;
-    let fetch_limit = if status.is_some() { 200 } else { limit };
+    let provider = non_empty_query_value(query.provider.as_deref());
+    let model = non_empty_query_value(query.model.as_deref());
+    let reasoning_effort = non_empty_query_value(query.reasoning_effort.as_deref());
+    let fetch_limit = if status.is_some()
+        || provider.is_some()
+        || model.is_some()
+        || reasoning_effort.is_some()
+    {
+        200
+    } else {
+        limit
+    };
     let runs = state
         .storage
         .agent_runs()
@@ -933,11 +944,26 @@ async fn agent_runs_response(
     let runs = runs
         .into_iter()
         .filter(|run| status.map(|status| run.status() == status).unwrap_or(true))
+        .filter(|run| agent_run_metadata_matches(run, "provider", provider))
+        .filter(|run| agent_run_metadata_matches(run, "model", model))
+        .filter(|run| agent_run_metadata_matches(run, "reasoning_effort", reasoning_effort))
         .take(limit as usize)
         .collect::<Vec<_>>();
     let summary = AgentRunStatusSummary::from_runs(&runs);
     let runs = runs.iter().map(AgentRunResponse::from_record).collect();
     Ok(Json(AgentRunsResponse { runs, summary }))
+}
+
+fn non_empty_query_value(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn agent_run_metadata_matches(run: &AgentRunRecord, field: &str, expected: Option<&str>) -> bool {
+    let Some(expected) = expected else {
+        return true;
+    };
+
+    agent_run_model_metadata_field(run, field).as_deref() == Some(expected)
 }
 
 async fn ensure_novel_exists(storage: &SqliteStorage, novel_id: &NovelId) -> Result<(), ApiError> {
@@ -1579,6 +1605,9 @@ struct AgentRunsQuery {
     novel_id: Option<String>,
     role: Option<String>,
     task: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
+    reasoning_effort: Option<String>,
     status: Option<String>,
 }
 
@@ -2904,7 +2933,7 @@ mod tests {
             .oneshot(empty_request(
                 "GET",
                 &format!(
-                    "/api/runs?limit=20&novel_id={novel_id}&role=writer&task=generate_chapter&status=ok"
+                    "/api/runs?limit=20&novel_id={novel_id}&role=writer&task=generate_chapter&provider=smoke&model=smoke-runtime&status=ok"
                 ),
             ))
             .await
@@ -2917,8 +2946,33 @@ mod tests {
             run["novel_id"].as_str() == Some(novel_id)
                 && run["role"].as_str() == Some("writer")
                 && run["task"].as_str() == Some("generate_chapter")
+                && run["provider"].as_str() == Some("smoke")
+                && run["model"].as_str() == Some("smoke-runtime")
                 && run["status"].as_str() == Some("ok")
         }));
+
+        let missing_model_runs_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!(
+                    "/api/runs?limit=20&novel_id={novel_id}&provider=smoke&model=missing-model"
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(missing_model_runs_response.status(), StatusCode::OK);
+        let missing_model_runs_json = response_json(missing_model_runs_response).await;
+        assert!(
+            missing_model_runs_json["runs"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            missing_model_runs_json["summary"]["total"].as_u64(),
+            Some(0)
+        );
 
         let first_run_id = global_runs[0]["id"].as_str().unwrap();
         let run_detail_response = app
