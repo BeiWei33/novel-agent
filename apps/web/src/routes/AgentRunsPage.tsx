@@ -84,6 +84,7 @@ export function AgentRunsPage() {
     };
   }, [queryClient, runOptions, useSseSnapshots]);
   const runs = runsQuery.data?.runs ?? [];
+  const providerOptions = useMemo(() => [...new Set(runs.map((run) => run.provider).filter(Boolean))].sort(), [runs]);
   const trimmedNovelIdFilter = novelIdFilter.trim();
   const filteredRuns = useMemo(
     () =>
@@ -153,6 +154,7 @@ export function AgentRunsPage() {
             roleFilter={roleFilter}
             taskFilter={taskFilter}
             providerFilter={providerFilter}
+            providerOptions={providerOptions}
             novelIdFilter={novelIdFilter}
             onStatusChange={(value) => {
               setStatusFilter(value);
@@ -256,6 +258,7 @@ function AgentRunFilters({
   roleFilter,
   taskFilter,
   providerFilter,
+  providerOptions,
   novelIdFilter,
   onStatusChange,
   onRoleChange,
@@ -268,6 +271,7 @@ function AgentRunFilters({
   roleFilter: AgentRole | "all";
   taskFilter: AgentTask | "all";
   providerFilter: AgentRun["provider"] | "all";
+  providerOptions: string[];
   novelIdFilter: string;
   onStatusChange: (value: AgentRunStatus | "all") => void;
   onRoleChange: (value: AgentRole | "all") => void;
@@ -307,9 +311,11 @@ function AgentRunFilters({
         onChange={(value) => onProviderChange(value as AgentRun["provider"] | "all")}
       >
         <option value="all">全部</option>
-        <option value="smoke">smoke</option>
-        <option value="openai">openai</option>
-        <option value="deepseek">deepseek</option>
+        {providerOptions.map((provider) => (
+          <option key={provider} value={provider}>
+            {provider}
+          </option>
+        ))}
       </FilterSelect>
       <FilterInput label="作品 ID" value={novelIdFilter} onChange={onNovelIdChange} placeholder="novel_id" />
       <Button size="sm" variant="ghost" onClick={onReset}>
@@ -385,6 +391,8 @@ function AgentRunDetail({ run, isLoading, error }: { run: AgentRun | null; isLoa
         <dl className="grid grid-cols-2 gap-3 text-xs">
           <DetailItem label="run_id" value={run.id} />
           <DetailItem label="provider" value={run.provider} />
+          <DetailItem label="model" value={run.model ?? "-"} />
+          <DetailItem label="reasoning" value={run.reasoning_effort ?? "-"} />
           <DetailItem label="耗时" value={formatDuration(run.duration_ms)} />
           <DetailItem label="attempt" value={run.attempt ? String(run.attempt) : "-"} />
           <DetailItem label="tokens" value={typeof run.total_tokens === "number" ? formatNumber(run.total_tokens) : "-"} />
