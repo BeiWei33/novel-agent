@@ -440,6 +440,10 @@ try {
     if ([string]::IsNullOrWhiteSpace($export.markdown)) {
         throw "Export markdown response was empty."
     }
+    $exportAlias = Invoke-ApiJson "export markdown alias" "Post" "/api/novels/$NovelId/export"
+    if ($exportAlias.format -ne "markdown" -or $exportAlias.markdown -ne $export.markdown) {
+        throw "Export alias response did not match markdown export."
+    }
 
     $runs = Invoke-ApiJson "agent runs" "Get" "/api/novels/$NovelId/runs?limit=$RunsLimit"
     if ($runs.summary.fallback -gt 0 -or $runs.summary.parse_error -gt 0) {

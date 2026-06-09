@@ -122,6 +122,7 @@ pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
             "/api/novels/{novel_id}/export/markdown",
             get(export_markdown),
         )
+        .route("/api/novels/{novel_id}/export", post(export_markdown))
         .route("/api/novels/{novel_id}/runs", get(list_agent_runs))
         .with_state(ApiState { storage, model })
         .layer(CorsLayer::permissive())
@@ -2429,6 +2430,26 @@ mod tests {
         let markdown = export_json["markdown"].as_str().unwrap();
         assert!(markdown.contains("# 重回外卖站"));
         assert!(markdown.contains("## 第1章"));
+
+        let export_alias_response = app
+            .clone()
+            .oneshot(empty_request(
+                "POST",
+                &format!("/api/novels/{novel_id}/export"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(export_alias_response.status(), StatusCode::OK);
+        let export_alias_json = response_json(export_alias_response).await;
+        assert_eq!(export_alias_json["format"].as_str(), Some("markdown"));
+        assert_eq!(
+            export_alias_json["filename"].as_str(),
+            export_json["filename"].as_str()
+        );
+        assert_eq!(
+            export_alias_json["markdown"].as_str(),
+            export_json["markdown"].as_str()
+        );
 
         let runs_response = app
             .clone()

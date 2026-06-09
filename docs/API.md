@@ -470,7 +470,10 @@ GET /api/novels/{novel_id}/chapters/{chapter_index}/versions/{version}
 
 ```http
 GET /api/novels/{novel_id}/export/markdown
+POST /api/novels/{novel_id}/export
 ```
+
+`POST /export` 是 Web 工作台导出动作的兼容入口，当前默认导出 Markdown，响应与 `/export/markdown` 相同。
 
 响应：
 
