@@ -5,10 +5,11 @@ import { Badge } from "../../components/ui/Badge";
 import { Section } from "../../components/ui/Section";
 import { platformLabels } from "../../lib/format";
 
-type BibleTab = "bible" | "characters" | "world" | "outline" | "facts" | "foreshadowing";
+type BibleTab = "bible" | "strategy" | "characters" | "world" | "outline" | "facts" | "foreshadowing";
 
 const tabs: Array<{ value: BibleTab; label: string }> = [
   { value: "bible", label: "小说圣经" },
+  { value: "strategy", label: "平台策略" },
   { value: "characters", label: "人物卡" },
   { value: "world", label: "世界观" },
   { value: "outline", label: "大纲" },
@@ -25,6 +26,7 @@ export function BibleTabs({ detail }: { detail: NovelDetail }) {
         <Tabs value={tab} items={tabs} onChange={setTab} />
       </div>
       {tab === "bible" ? <BibleView detail={detail} /> : null}
+      {tab === "strategy" ? <PlatformStrategyView detail={detail} /> : null}
       {tab === "characters" ? <CharacterView detail={detail} /> : null}
       {tab === "world" ? <WorldView detail={detail} /> : null}
       {tab === "outline" ? <OutlineView detail={detail} /> : null}
@@ -48,19 +50,66 @@ function BibleView({ detail }: { detail: NovelDetail }) {
           <Field label="文风" value={bible.tone} />
         </dl>
       </Section>
-      <Section title="平台策略">
+      <Section title="题名与规则">
         <div className="space-y-4 p-4 text-sm">
+          <TitleCandidateList detail={detail} />
+          <List title="世界规则" values={bible.world_rules} />
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+function PlatformStrategyView({ detail }: { detail: NovelDetail }) {
+  const bible = detail.bible;
+  const profile = bible.platform_profile;
+  const reviewBiasEntries = profile ? Object.entries(profile.review_bias).filter(([, value]) => value != null && value !== "") : [];
+
+  return (
+    <div className="grid gap-0 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.75fr)]">
+      <Section title="平台画像">
+        <div className="space-y-4 p-4">
           <div className="flex flex-wrap gap-2">
-            <Badge tone="blue">{platformLabels[bible.target_platform]}</Badge>
+            <Badge tone="blue">{platformLabels[profile?.target_platform ?? bible.target_platform]}</Badge>
             {bible.platform_tags.map((tag) => (
               <Badge key={tag}>{tag}</Badge>
             ))}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <Metric label="开篇速度" value={openingSpeedLabel(profile?.opening_speed)} />
+            <Metric label="铺垫占比" value={formatRatio(profile?.setup_ratio)} />
+            <Metric label="对话占比" value={formatRatio(profile?.dialogue_ratio)} />
+            <Metric label="爽点频率" value={profile?.payoff_frequency ?? "-"} />
+            <Metric label="章尾强度" value={cliffhangerStrengthLabel(profile?.cliffhanger_strength)} />
           </div>
           <List title="核心卖点" values={bible.core_selling_points} />
           <List title="读者期待" values={bible.reader_expectations} />
           <List title="硬限制" values={bible.constraints} />
         </div>
       </Section>
+      <div>
+        <Section title="开篇三章">
+          <dl className="space-y-4 p-4">
+            <Field label="首场景" value={bible.opening_strategy.first_scene} />
+            <Field label="首冲突" value={bible.opening_strategy.first_conflict} />
+            <Field label="前三章目标" value={bible.opening_strategy.first_three_chapters_goal} />
+          </dl>
+        </Section>
+        <Section title="审稿偏向">
+          {reviewBiasEntries.length > 0 ? (
+            <dl className="space-y-3 p-4">
+              {reviewBiasEntries.map(([key, value]) => (
+                <div key={key} className="rounded-md border border-line bg-slate-50 px-3 py-2">
+                  <dt className="field-label">{reviewBiasLabel(key)}</dt>
+                  <dd className="mt-1 text-sm leading-6 text-slate-700">{stringifyReviewBias(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="p-4 text-sm text-slate-500">暂无审稿偏向配置。</p>
+          )}
+        </Section>
+      </div>
     </div>
   );
 }
@@ -236,11 +285,41 @@ function ForeshadowingView({ detail }: { detail: NovelDetail }) {
   );
 }
 
+function TitleCandidateList({ detail }: { detail: NovelDetail }) {
+  const candidates = detail.bible.title_candidates;
+  if (candidates.length === 0) {
+    return <p className="text-sm text-slate-500">暂无候选书名。</p>;
+  }
+
+  return (
+    <div>
+      <div className="field-label mb-2">候选书名</div>
+      <div className="space-y-2">
+        {candidates.map((candidate) => (
+          <div key={candidate.title} className="rounded-md border border-line bg-slate-50 px-3 py-2">
+            <div className="text-sm font-semibold text-ink">{candidate.title}</div>
+            <p className="mt-1 text-xs leading-5 text-slate-500">{candidate.reason}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Field({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
   return (
     <div className={wide ? "md:col-span-2" : undefined}>
       <dt className="field-label">{label}</dt>
       <dd className="mt-1 text-sm leading-6 text-slate-700">{value}</dd>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-line bg-slate-50 px-3 py-2">
+      <div className="field-label">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-ink">{value}</div>
     </div>
   );
 }
@@ -289,6 +368,74 @@ function factSourceLabel(fact: Fact): string {
     return `第 ${chapterIndex} 章`;
   }
   return fact.chapter_id.length > 18 ? `${fact.chapter_id.slice(0, 18)}...` : fact.chapter_id;
+}
+
+function openingSpeedLabel(speed?: string): string {
+  if (speed === "very_fast") {
+    return "极快";
+  }
+  if (speed === "fast") {
+    return "快";
+  }
+  if (speed === "slow") {
+    return "慢";
+  }
+  if (speed) {
+    return speed;
+  }
+  return "-";
+}
+
+function cliffhangerStrengthLabel(strength?: string): string {
+  if (strength === "strong") {
+    return "强";
+  }
+  if (strength === "medium") {
+    return "中";
+  }
+  if (strength === "light") {
+    return "轻";
+  }
+  if (strength) {
+    return strength;
+  }
+  return "-";
+}
+
+function formatRatio(value?: number): string {
+  return typeof value === "number" ? `${Math.round(value * 100)}%` : "-";
+}
+
+function reviewBiasLabel(key: string): string {
+  const labels: Record<string, string> = {
+    pacing: "节奏",
+    cliffhanger: "章尾钩子",
+    opening_hook: "开篇钩子",
+    payoff: "爽点回报",
+    platform_fit: "平台适配",
+    dialogue: "对话",
+    character: "人物",
+    continuity: "连续性",
+  };
+  return labels[key] ?? key;
+}
+
+function stringifyReviewBias(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(stringifyReviewBias).join(" / ");
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => `${reviewBiasLabel(key)}：${stringifyReviewBias(item)}`)
+      .join("；");
+  }
+  return "-";
 }
 
 function foreshadowingStatusLabel(status: string): string {
