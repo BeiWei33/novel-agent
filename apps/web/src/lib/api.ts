@@ -35,7 +35,7 @@ export const apiConfig = {
   mode: useMock ? "mock" : "real",
   sseEnabled,
   useMock,
-  manualSaveEnabled: useMock,
+  manualSaveEnabled: true,
 } as const;
 
 export class ApiError extends Error {
@@ -952,7 +952,11 @@ export const api = {
 
   async saveChapterContent(novelId: string, chapterIndex: number, content: string): Promise<Chapter> {
     if (!useMock) {
-      throw new ApiError("真实 API 尚未提供人工保存章节接口，请先导出当前草稿或使用 mock 模式保存。", 501);
+      await request<{ draft: ChapterDraft }>(`/api/novels/${novelId}/chapters/${chapterIndex}/edit`, {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      });
+      return requestChapter(novelId, chapterIndex);
     }
     await sleep(420);
     const chapter = findChapter(novelId, chapterIndex);

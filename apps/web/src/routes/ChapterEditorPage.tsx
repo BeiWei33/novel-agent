@@ -233,7 +233,7 @@ export function ChapterEditorPage() {
               variant="primary"
               onClick={() => saveMutation.mutate()}
               disabled={saveMutation.isPending || !editorValue.trim() || !isDirty || !manualSaveEnabled}
-              title={manualSaveEnabled ? "保存人工编辑稿" : "真实 API 暂未开放人工保存"}
+              title={manualSaveEnabled ? "保存人工编辑稿" : "当前模式暂不可保存"}
             >
               <Save className="h-4 w-4" />
               {saveMutation.isPending ? "保存中" : "保存"}
@@ -257,7 +257,7 @@ export function ChapterEditorPage() {
         <StatusBanner title="有未保存编辑">
           {manualSaveEnabled
             ? "当前草稿只保存在浏览器会话中，保存后会生成新的章节版本。"
-            : "当前真实 API 尚未开放人工保存；可先导出当前草稿。"}
+            : "当前模式暂不可保存；可先导出当前草稿。"}
         </StatusBanner>
       ) : null}
       <MobileChapterPicker
