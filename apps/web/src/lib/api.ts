@@ -21,7 +21,7 @@ import type {
   ReviewReport,
   WorldSetting,
 } from "../types/domain";
-import type { ApiClientStatus, ApiHealthStatus, ChapterOperation, ChapterStreamEvent } from "../types/api";
+import type { ApiClientStatus, ApiHealthStatus, ApiModelSettings, ChapterOperation, ChapterStreamEvent } from "../types/api";
 import { countWords } from "./format";
 import { createMockDatabase, makeGeneratedChapter, makeNewNovel, makeRetriedJob, makeRuntimeAgentRun } from "./mockData";
 import { readServerSentEvents, type SseMessage } from "./sse";
@@ -30,6 +30,11 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
 const useMock = import.meta.env.VITE_USE_MOCK !== "false" || !apiBaseUrl;
 const sseEnabled = import.meta.env.VITE_ENABLE_SSE === "true";
 const db = createMockDatabase();
+let mockModelSettings: ApiModelSettings = {
+  provider: "smoke",
+  model: "smoke",
+  reasoning_effort: null,
+};
 
 export const apiConfig = {
   baseUrl: apiBaseUrl || null,
@@ -108,6 +113,10 @@ interface ContinuityResponse {
 interface ExportMarkdownResponse {
   filename: string;
   markdown: string;
+}
+
+interface ModelSettingsResponse {
+  model: ApiModelSettings;
 }
 
 interface AgentRunsResponse {
@@ -207,6 +216,7 @@ function normalizeJobListOptions(options: JobListOptions = {}): NormalizedJobLis
 
 export const queryKeys = {
   health: ["health"] as const,
+  model: ["model"] as const,
   novels: ["novels"] as const,
   novel: (novelId: string) => ["novel", novelId] as const,
   chapters: (novelId: string) => ["chapters", novelId] as const,
@@ -516,6 +526,28 @@ function normalizeContinuityReport(report: ContinuityReport | null | undefined):
   };
 }
 
+function defaultModelForProvider(provider: string): string {
+  if (provider === "openai") {
+    return "gpt-5";
+  }
+  if (provider === "deepseek") {
+    return "deepseek-chat";
+  }
+  return "smoke";
+}
+
+function normalizeModelSettings(settings: ApiModelSettings): ApiModelSettings {
+  const providerValue = settings.provider.trim().toLowerCase();
+  const provider = providerValue === "local" || providerValue === "offline" || !providerValue ? "smoke" : providerValue;
+  const model = settings.model.trim() || defaultModelForProvider(provider);
+  const reasoningEffort = settings.reasoning_effort?.trim() || null;
+  return {
+    provider,
+    model,
+    reasoning_effort: provider === "openai" ? reasoningEffort : null,
+  };
+}
+
 function makeMockContinuityReport(novelId: string, chapter: Chapter): ContinuityReport | null {
   if (!chapter.content) {
     return null;
@@ -758,6 +790,29 @@ export const api = {
       checked_at: new Date().toISOString(),
       sse: sseEnabled,
     };
+  },
+
+  async getModelSettings(): Promise<ApiModelSettings> {
+    if (!useMock) {
+      const payload = await request<ModelSettingsResponse>("/api/model");
+      return normalizeModelSettings(payload.model);
+    }
+    await sleep(80);
+    return clone(mockModelSettings);
+  },
+
+  async updateModelSettings(settings: ApiModelSettings): Promise<ApiModelSettings> {
+    const normalized = normalizeModelSettings(settings);
+    if (!useMock) {
+      const payload = await request<ModelSettingsResponse>("/api/model", {
+        method: "PUT",
+        body: JSON.stringify(normalized),
+      });
+      return normalizeModelSettings(payload.model);
+    }
+    await sleep(220);
+    mockModelSettings = normalized;
+    return clone(mockModelSettings);
   },
 
   async getNovels(): Promise<NovelListItem[]> {
