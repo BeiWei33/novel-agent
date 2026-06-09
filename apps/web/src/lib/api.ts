@@ -1036,10 +1036,18 @@ export const api = {
 
   async saveChapterContent(novelId: string, chapterIndex: number, content: string): Promise<Chapter> {
     if (!useMock) {
-      await request<{ draft: ChapterDraft }>(`/api/novels/${novelId}/chapters/${chapterIndex}/edit`, {
+      const saveRequest = {
         method: "PUT",
         body: JSON.stringify({ content }),
-      });
+      };
+      try {
+        await request<{ draft: ChapterDraft }>(`/api/novels/${novelId}/chapters/${chapterIndex}/content`, saveRequest);
+      } catch (error) {
+        if (!(error instanceof ApiError) || (error.status !== 404 && error.status !== 405)) {
+          throw error;
+        }
+        await request<{ draft: ChapterDraft }>(`/api/novels/${novelId}/chapters/${chapterIndex}/edit`, saveRequest);
+      }
       return requestChapter(novelId, chapterIndex);
     }
     await sleep(420);
