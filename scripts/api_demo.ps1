@@ -248,6 +248,14 @@ try {
     }
 
     Invoke-ApiJson "list novels" "Get" "/api/novels?limit=10" | Out-Null
+    $outline = Invoke-ApiJson "get outline" "Get" "/api/novels/$NovelId/outline"
+    if ($outline.outlines.Count -ne $Chapters) {
+        throw "Outline API returned $($outline.outlines.Count) outlines, expected $Chapters."
+    }
+    $wrongOutline = $outline.outlines | Where-Object { $_.novel_id -ne $NovelId } | Select-Object -First 1
+    if ($null -ne $wrongOutline) {
+        throw "Outline API returned outline for another novel."
+    }
     $bible = Invoke-ApiJson "get bible" "Get" "/api/novels/$NovelId/bible"
     if ($null -eq $bible.bible -or $bible.bible.novel_id -ne $NovelId) {
         throw "Bible API returned missing or wrong novel_id."

@@ -289,8 +289,11 @@ GET /api/novels/{novel_id}/facts?limit=100
 ## 大纲
 
 ```http
+GET /api/novels/{novel_id}/outline
 POST /api/novels/{novel_id}/outline
 ```
+
+`GET` 只读取当前已保存章节大纲，不调用模型；`POST` 会按请求体重新生成大纲。
 
 请求：
 

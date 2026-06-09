@@ -53,7 +53,10 @@ pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
         .route("/api/novels/{novel_id}/bible", get(get_bible))
         .route("/api/novels/{novel_id}/characters", get(list_characters))
         .route("/api/novels/{novel_id}/facts", get(list_facts))
-        .route("/api/novels/{novel_id}/outline", post(generate_outline))
+        .route(
+            "/api/novels/{novel_id}/outline",
+            get(get_outline).post(generate_outline),
+        )
         .route(
             "/api/novels/{novel_id}/world-settings",
             get(get_world_setting),
@@ -409,6 +412,17 @@ async fn list_facts(
         .list_by_novel(&novel_id, capped_limit(query.limit, 100))
         .await?;
     Ok(Json(FactsResponse { facts }))
+}
+
+async fn get_outline(
+    State(state): State<ApiState>,
+    Path(novel_id): Path<String>,
+) -> Result<Json<OutlineResponse>, ApiError> {
+    let novel_id = NovelId::from(novel_id);
+    ensure_novel_exists(&state.storage, &novel_id).await?;
+    let chapters = state.storage.chapters().list_by_novel(&novel_id).await?;
+    let outlines = chapters.iter().map(outline_from_chapter).collect();
+    Ok(Json(OutlineResponse { outlines }))
 }
 
 async fn generate_outline(
@@ -885,6 +899,29 @@ fn require_non_empty<'a>(value: &'a str, field: &'static str) -> Result<&'a str,
         Err(ApiError::bad_request(format!("{field} cannot be empty")))
     } else {
         Ok(trimmed)
+    }
+}
+
+fn outline_from_chapter(chapter: &Chapter) -> ChapterOutline {
+    ChapterOutline {
+        novel_id: chapter.novel_id.clone(),
+        volume_index: chapter.volume_index,
+        chapter_index: chapter.chapter_index,
+        title: chapter.title.clone(),
+        pov: "第三人称限知".to_string(),
+        goal: chapter.outline.clone(),
+        conflict: String::new(),
+        key_events: Vec::new(),
+        character_changes: Vec::new(),
+        new_facts: Vec::new(),
+        payoff: String::new(),
+        foreshadowing: Vec::new(),
+        cliffhanger: String::new(),
+        estimated_word_count: if chapter.word_count == 0 {
+            2600
+        } else {
+            chapter.word_count
+        },
     }
 }
 
@@ -1834,6 +1871,22 @@ mod tests {
         let create_json = response_json(create_response).await;
         let novel_id = create_json["novel"]["id"].as_str().unwrap();
         assert_eq!(create_json["outlines"].as_array().unwrap().len(), 3);
+
+        let outline_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/api/novels/{novel_id}/outline"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(outline_response.status(), StatusCode::OK);
+        let outline_json = response_json(outline_response).await;
+        let outlines = outline_json["outlines"].as_array().unwrap();
+        assert_eq!(outlines.len(), 3);
+        assert_eq!(outlines[0]["chapter_index"].as_u64(), Some(1));
+        assert_eq!(outlines[0]["novel_id"].as_str(), Some(novel_id));
+        assert!(outlines[0]["estimated_word_count"].as_u64().unwrap() > 0);
 
         let list_response = app
             .clone()
