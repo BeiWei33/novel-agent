@@ -240,6 +240,22 @@ try {
     }
 
     Invoke-ApiJson "list novels" "Get" "/api/novels?limit=10" | Out-Null
+    $bible = Invoke-ApiJson "get bible" "Get" "/api/novels/$NovelId/bible"
+    if ($null -eq $bible.bible -or $bible.bible.novel_id -ne $NovelId) {
+        throw "Bible API returned missing or wrong novel_id."
+    }
+    $characters = Invoke-ApiJson "list characters" "Get" "/api/novels/$NovelId/characters"
+    if ($characters.characters.Count -lt 1) {
+        throw "Characters API returned no characters."
+    }
+    $wrongCharacter = $characters.characters | Where-Object { $_.novel_id -ne $NovelId } | Select-Object -First 1
+    if ($null -ne $wrongCharacter) {
+        throw "Characters API returned character for another novel."
+    }
+    $worldSetting = Invoke-ApiJson "get world settings" "Get" "/api/novels/$NovelId/world-settings"
+    if ($null -eq $worldSetting.world_setting) {
+        throw "World settings API returned no world_setting."
+    }
     $facts = Invoke-ApiJson "list facts" "Get" "/api/novels/$NovelId/facts?limit=10"
     if ($facts.facts.Count -lt 1) {
         throw "Facts API returned no facts."

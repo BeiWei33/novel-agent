@@ -44,8 +44,14 @@ pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
         .route("/api/novels", get(list_novels).post(create_novel))
         .route("/api/novels/jobs", post(create_novel_job))
         .route("/api/novels/{novel_id}", get(get_novel))
+        .route("/api/novels/{novel_id}/bible", get(get_bible))
+        .route("/api/novels/{novel_id}/characters", get(list_characters))
         .route("/api/novels/{novel_id}/facts", get(list_facts))
         .route("/api/novels/{novel_id}/outline", post(generate_outline))
+        .route(
+            "/api/novels/{novel_id}/world-settings",
+            get(get_world_setting),
+        )
         .route("/api/novels/{novel_id}/chapters", get(list_chapters))
         .route(
             "/api/novels/{novel_id}/chapters/{chapter_index}",
@@ -343,6 +349,36 @@ async fn get_novel(
         world_setting,
         facts,
     }))
+}
+
+async fn get_bible(
+    State(state): State<ApiState>,
+    Path(novel_id): Path<String>,
+) -> Result<Json<BibleResponse>, ApiError> {
+    let novel_id = NovelId::from(novel_id);
+    ensure_novel_exists(&state.storage, &novel_id).await?;
+    let bible = state.storage.novels().find_bible(&novel_id).await?;
+    Ok(Json(BibleResponse { bible }))
+}
+
+async fn list_characters(
+    State(state): State<ApiState>,
+    Path(novel_id): Path<String>,
+) -> Result<Json<CharactersResponse>, ApiError> {
+    let novel_id = NovelId::from(novel_id);
+    ensure_novel_exists(&state.storage, &novel_id).await?;
+    let characters = state.storage.characters().list_by_novel(&novel_id).await?;
+    Ok(Json(CharactersResponse { characters }))
+}
+
+async fn get_world_setting(
+    State(state): State<ApiState>,
+    Path(novel_id): Path<String>,
+) -> Result<Json<WorldSettingResponse>, ApiError> {
+    let novel_id = NovelId::from(novel_id);
+    ensure_novel_exists(&state.storage, &novel_id).await?;
+    let world_setting = state.storage.world_settings().find(&novel_id).await?;
+    Ok(Json(WorldSettingResponse { world_setting }))
 }
 
 async fn list_facts(
@@ -1428,6 +1464,21 @@ struct NovelDetailResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct BibleResponse {
+    bible: Option<NovelBible>,
+}
+
+#[derive(Debug, Serialize)]
+struct CharactersResponse {
+    characters: Vec<CharacterCard>,
+}
+
+#[derive(Debug, Serialize)]
+struct WorldSettingResponse {
+    world_setting: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
 struct FactsResponse {
     facts: Vec<Fact>,
 }
@@ -1610,6 +1661,47 @@ mod tests {
         assert_eq!(list_response.status(), StatusCode::OK);
         let list_json = response_json(list_response).await;
         assert_eq!(list_json["novels"].as_array().unwrap().len(), 1);
+
+        let bible_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/api/novels/{novel_id}/bible"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(bible_response.status(), StatusCode::OK);
+        let bible_json = response_json(bible_response).await;
+        assert_eq!(bible_json["bible"]["novel_id"].as_str(), Some(novel_id));
+
+        let characters_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/api/novels/{novel_id}/characters"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(characters_response.status(), StatusCode::OK);
+        let characters_json = response_json(characters_response).await;
+        assert!(!characters_json["characters"].as_array().unwrap().is_empty());
+        assert!(characters_json["characters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|character| character["novel_id"].as_str() == Some(novel_id)));
+
+        let world_setting_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/api/novels/{novel_id}/world-settings"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(world_setting_response.status(), StatusCode::OK);
+        let world_setting_json = response_json(world_setting_response).await;
+        assert!(world_setting_json["world_setting"].is_object());
 
         let facts_response = app
             .clone()

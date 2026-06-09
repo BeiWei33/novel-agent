@@ -229,6 +229,34 @@ GET /api/novels/{novel_id}
 }
 ```
 
+作品资料拆分查询：
+
+```http
+GET /api/novels/{novel_id}/bible
+GET /api/novels/{novel_id}/characters
+GET /api/novels/{novel_id}/world-settings
+```
+
+响应分别为：
+
+```json
+{
+  "bible": {}
+}
+```
+
+```json
+{
+  "characters": []
+}
+```
+
+```json
+{
+  "world_setting": {}
+}
+```
+
 作品事实：
 
 ```http

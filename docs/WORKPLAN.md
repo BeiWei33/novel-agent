@@ -80,6 +80,7 @@ ChapterVersion
 - 已提供章节详情 API
 - 已提供章节版本 API
 - 已提供审稿报告 API
+- 已提供小说 Bible、人物卡和世界设定拆分只读 API
 - 已提供 facts 和 continuity report 只读 API
 - 已提供 AgentRun API
 - 已提供新建小说 API
