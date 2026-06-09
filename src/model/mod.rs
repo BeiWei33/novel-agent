@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +34,8 @@ pub struct ModelMetadata {
     pub model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pricing: Option<ModelPricing>,
 }
 
 impl ModelMetadata {
@@ -40,6 +44,7 @@ impl ModelMetadata {
             provider: provider.into(),
             model: model.into(),
             reasoning_effort: None,
+            pricing: None,
         }
     }
 
@@ -48,8 +53,55 @@ impl ModelMetadata {
         self
     }
 
+    pub fn with_pricing(mut self, pricing: Option<ModelPricing>) -> Self {
+        self.pricing = pricing.filter(ModelPricing::has_complete_costs);
+        self
+    }
+
     pub fn unknown() -> Self {
         Self::new("unknown", "unknown")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelPricing {
+    pub prompt_cost_micro_usd_per_million_tokens: Option<u64>,
+    pub completion_cost_micro_usd_per_million_tokens: Option<u64>,
+}
+
+impl ModelPricing {
+    fn has_complete_costs(&self) -> bool {
+        self.prompt_cost_micro_usd_per_million_tokens.is_some()
+            && self.completion_cost_micro_usd_per_million_tokens.is_some()
+    }
+}
+
+pub struct ModelClientWithMetadata {
+    inner: Arc<dyn ModelClient>,
+    metadata: ModelMetadata,
+}
+
+impl ModelClientWithMetadata {
+    pub fn new(inner: Arc<dyn ModelClient>, metadata: ModelMetadata) -> Self {
+        Self { inner, metadata }
+    }
+}
+
+#[async_trait]
+impl ModelClient for ModelClientWithMetadata {
+    fn metadata(&self) -> ModelMetadata {
+        self.metadata.clone()
+    }
+
+    async fn complete(&self, request: ModelRequest) -> Result<ModelResponse, ModelError> {
+        self.inner.complete(request).await
+    }
+
+    async fn complete_stream(
+        &self,
+        request: ModelRequest,
+    ) -> Result<ModelStreamResponse, ModelError> {
+        self.inner.complete_stream(request).await
     }
 }
 

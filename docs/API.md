@@ -63,6 +63,7 @@ PUT /api/model
 ```
 
 `GET /api/model` 返回当前 API 进程后续 workflow 会使用的模型配置。`PUT /api/model` 会在线切换模型配置，影响切换之后触发的新建、生成、审稿、重写和后台 job；已经启动的后台任务继续使用任务启动时捕获的模型客户端。`provider` 支持 `smoke`、`openai`、`deepseek`，并兼容 `local` / `offline` 作为 `smoke` 别名。`reasoning_effort` 只对 `openai` provider 生效，其他 provider 会返回 `null`。
+`pricing` 是可选的用户配置价格，单位为每百万 token 的 microUSD；系统不会内置或推断真实供应商价格。只有同时提供 prompt 和 completion 两个价格时，新产生的 AgentRun 才会保存价格并计算成本；未配置、配置不完整或历史旧记录的成本字段返回 `null`，汇总中按 0 计。
 
 请求：
 
@@ -70,7 +71,11 @@ PUT /api/model
 {
   "provider": "smoke",
   "model": "smoke",
-  "reasoning_effort": null
+  "reasoning_effort": null,
+  "pricing": {
+    "prompt_cost_micro_usd_per_million_tokens": 1000000,
+    "completion_cost_micro_usd_per_million_tokens": 2000000
+  }
 }
 ```
 
@@ -81,7 +86,11 @@ PUT /api/model
   "model": {
     "provider": "smoke",
     "model": "smoke",
-    "reasoning_effort": null
+    "reasoning_effort": null,
+    "pricing": {
+      "prompt_cost_micro_usd_per_million_tokens": 1000000,
+      "completion_cost_micro_usd_per_million_tokens": 2000000
+    }
   }
 }
 ```
@@ -539,7 +548,7 @@ GET /api/novels/{novel_id}/runs?limit=20
 GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&status=ok
 ```
 
-全局 `GET /api/runs` 可选传 `novel_id`；`GET /api/agent-runs` 是给 Web 工作台保留的兼容别名，查询参数和响应与 `/api/runs` 相同。`/stream` 入口使用同一组查询参数，返回当前筛选结果的 SSE 快照事件，适合 Web 工作台用 fetch-SSE 或重连方式刷新运行面板。作品内 `GET /api/novels/{novel_id}/runs` 固定查当前作品。`role` / `task` / `status` / `provider` / `model` / `reasoning_effort` 均为可选筛选参数。`status` 必须是 `ok`、`fallback`、`parse_error` 之一；非法值返回 `400 Bad Request`。`summary` 基于筛选后的 `runs` 计算。`provider` / `model` / `reasoning_effort` 是模型运行元数据；旧记录如果没有保存该元数据，会返回 `null`，也不会命中对应模型元数据筛选。`prompt_tokens` / `completion_tokens` / `total_tokens` 来自 provider usage 或 smoke provider 估算；provider 未返回 usage 时会返回 `null`。
+全局 `GET /api/runs` 可选传 `novel_id`；`GET /api/agent-runs` 是给 Web 工作台保留的兼容别名，查询参数和响应与 `/api/runs` 相同。`/stream` 入口使用同一组查询参数，返回当前筛选结果的 SSE 快照事件，适合 Web 工作台用 fetch-SSE 或重连方式刷新运行面板。作品内 `GET /api/novels/{novel_id}/runs` 固定查当前作品。`role` / `task` / `status` / `provider` / `model` / `reasoning_effort` 均为可选筛选参数。`status` 必须是 `ok`、`fallback`、`parse_error` 之一；非法值返回 `400 Bad Request`。`summary` 基于筛选后的 `runs` 计算。`provider` / `model` / `reasoning_effort` 是模型运行元数据；旧记录如果没有保存该元数据，会返回 `null`，也不会命中对应模型元数据筛选。`prompt_tokens` / `completion_tokens` / `total_tokens` 来自 provider usage 或 smoke provider 估算；provider 未返回 usage 时会返回 `null`。`prompt_cost_micro_usd` / `completion_cost_micro_usd` / `total_cost_micro_usd` 只在该 run 同时有 token usage 和完整 `_model.pricing` 时计算；否则返回 `null`。
 
 响应：
 
@@ -560,6 +569,9 @@ GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&statu
       "prompt_tokens": 800,
       "completion_tokens": 400,
       "total_tokens": 1200,
+      "prompt_cost_micro_usd": 800,
+      "completion_cost_micro_usd": 800,
+      "total_cost_micro_usd": 1600,
       "output_summary": "生成第 1 章《旧账重开》，2600 字。",
       "structured": {},
       "raw_text": "...",
@@ -577,7 +589,11 @@ GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&statu
     "tokenized_runs": 1,
     "prompt_tokens": 800,
     "completion_tokens": 400,
-    "total_tokens": 1200
+    "total_tokens": 1200,
+    "priced_runs": 1,
+    "prompt_cost_micro_usd": 800,
+    "completion_cost_micro_usd": 800,
+    "total_cost_micro_usd": 1600
   }
 }
 ```

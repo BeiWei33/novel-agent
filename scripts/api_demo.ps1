@@ -226,12 +226,22 @@ try {
     if ($currentModel.model.provider -ne $Provider -or $currentModel.model.model -ne $Model) {
         throw "Model settings API returned unexpected initial provider/model."
     }
-    $updatedModel = Invoke-ApiJson "update model settings" "Put" "/api/model" @{
+    $ModelUpdate = @{
         provider = $Provider
         model = $Model
     }
+    if ($Provider -eq "smoke") {
+        $ModelUpdate["pricing"] = @{
+            prompt_cost_micro_usd_per_million_tokens = 1000000
+            completion_cost_micro_usd_per_million_tokens = 2000000
+        }
+    }
+    $updatedModel = Invoke-ApiJson "update model settings" "Put" "/api/model" $ModelUpdate
     if ($updatedModel.model.provider -ne $Provider -or $updatedModel.model.model -ne $Model) {
         throw "Model settings API did not preserve provider/model."
+    }
+    if ($Provider -eq "smoke" -and $updatedModel.model.pricing.prompt_cost_micro_usd_per_million_tokens -ne 1000000) {
+        throw "Model settings API did not preserve smoke pricing metadata."
     }
 
     Write-Host "=== cors preflight ==="
@@ -499,6 +509,13 @@ try {
         if ($null -ne $missingWriterTokens) {
             throw "Filtered AgentRun API returned missing token metadata."
         }
+        $missingWriterCost = $writerRuns.runs | Where-Object { $_.prompt_cost_micro_usd -le 0 -or $_.completion_cost_micro_usd -le 0 -or $_.total_cost_micro_usd -le 0 } | Select-Object -First 1
+        if ($null -ne $missingWriterCost) {
+            throw "Filtered AgentRun API returned missing cost metadata."
+        }
+        if ($runs.summary.priced_runs -le 0 -or $runs.summary.total_cost_micro_usd -le 0) {
+            throw "AgentRun summary returned missing cost metadata."
+        }
     }
     $globalWriterRuns = Invoke-ApiJson "global filtered agent runs" "Get" "/api/runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&$ModelFilter&status=ok"
     if ($globalWriterRuns.runs.Count -ne $writerRuns.runs.Count) {
@@ -522,6 +539,9 @@ try {
     }
     if ($Provider -eq "smoke" -and ($runDetail.run.prompt_tokens -ne $globalWriterRuns.runs[0].prompt_tokens -or $runDetail.run.completion_tokens -ne $globalWriterRuns.runs[0].completion_tokens -or $runDetail.run.total_tokens -ne $globalWriterRuns.runs[0].total_tokens)) {
         throw "AgentRun detail API returned different token metadata."
+    }
+    if ($Provider -eq "smoke" -and ($runDetail.run.prompt_cost_micro_usd -ne $globalWriterRuns.runs[0].prompt_cost_micro_usd -or $runDetail.run.completion_cost_micro_usd -ne $globalWriterRuns.runs[0].completion_cost_micro_usd -or $runDetail.run.total_cost_micro_usd -ne $globalWriterRuns.runs[0].total_cost_micro_usd)) {
+        throw "AgentRun detail API returned different cost metadata."
     }
     $aliasRuns = Invoke-ApiJson "agent runs alias" "Get" "/api/agent-runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&$ModelFilter&status=ok"
     if ($aliasRuns.runs.Count -ne $globalWriterRuns.runs.Count) {

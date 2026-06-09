@@ -1,8 +1,8 @@
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 
@@ -909,6 +909,10 @@ pub struct AgentRunStatusSummary {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
     pub total_tokens: u64,
+    pub priced_runs: usize,
+    pub prompt_cost_micro_usd: u64,
+    pub completion_cost_micro_usd: u64,
+    pub total_cost_micro_usd: u64,
 }
 
 impl AgentRunRecord {
@@ -948,6 +952,27 @@ impl AgentRunRecord {
         self.token_usage_u64("total_tokens")
     }
 
+    pub fn prompt_cost_micro_usd(&self) -> Option<u64> {
+        token_cost_micro_usd(
+            self.prompt_tokens()?,
+            self.model_pricing_u64("prompt_cost_micro_usd_per_million_tokens")?,
+        )
+    }
+
+    pub fn completion_cost_micro_usd(&self) -> Option<u64> {
+        token_cost_micro_usd(
+            self.completion_tokens()?,
+            self.model_pricing_u64("completion_cost_micro_usd_per_million_tokens")?,
+        )
+    }
+
+    pub fn total_cost_micro_usd(&self) -> Option<u64> {
+        Some(
+            self.prompt_cost_micro_usd()?
+                .saturating_add(self.completion_cost_micro_usd()?),
+        )
+    }
+
     fn engineering_u64(&self, key: &str) -> Option<u64> {
         self.structured
             .get("_engineering")
@@ -959,6 +984,14 @@ impl AgentRunRecord {
         self.structured
             .get("_engineering")
             .and_then(|value| value.get("token_usage"))
+            .and_then(|value| value.get(key))
+            .and_then(serde_json::Value::as_u64)
+    }
+
+    fn model_pricing_u64(&self, key: &str) -> Option<u64> {
+        self.structured
+            .get("_model")
+            .and_then(|value| value.get("pricing"))
             .and_then(|value| value.get(key))
             .and_then(serde_json::Value::as_u64)
     }
@@ -981,6 +1014,12 @@ impl AgentRunStatusSummary {
             summary.prompt_tokens += run.prompt_tokens().unwrap_or(0);
             summary.completion_tokens += run.completion_tokens().unwrap_or(0);
             summary.total_tokens += run.total_tokens().unwrap_or(0);
+            if run.total_cost_micro_usd().is_some() {
+                summary.priced_runs += 1;
+            }
+            summary.prompt_cost_micro_usd += run.prompt_cost_micro_usd().unwrap_or(0);
+            summary.completion_cost_micro_usd += run.completion_cost_micro_usd().unwrap_or(0);
+            summary.total_cost_micro_usd += run.total_cost_micro_usd().unwrap_or(0);
         }
         summary
     }
@@ -988,6 +1027,15 @@ impl AgentRunStatusSummary {
     pub fn has_bad_status(self) -> bool {
         self.fallback > 0 || self.parse_error > 0
     }
+}
+
+fn token_cost_micro_usd(tokens: u64, micro_usd_per_million_tokens: u64) -> Option<u64> {
+    Some(
+        tokens
+            .saturating_mul(micro_usd_per_million_tokens)
+            .checked_div(1_000_000)
+            .unwrap_or(0),
+    )
 }
 
 impl AgentRunRepository<'_> {
@@ -1658,9 +1706,16 @@ mod tests {
                 tokenized_runs: 3,
                 prompt_tokens: 30,
                 completion_tokens: 15,
-                total_tokens: 45
+                total_tokens: 45,
+                priced_runs: 3,
+                prompt_cost_micro_usd: 30,
+                completion_cost_micro_usd: 30,
+                total_cost_micro_usd: 60
             }
         );
+        assert_eq!(ok.prompt_cost_micro_usd(), Some(10));
+        assert_eq!(ok.completion_cost_micro_usd(), Some(10));
+        assert_eq!(ok.total_cost_micro_usd(), Some(20));
         assert!(summary.has_bad_status());
     }
 
@@ -1748,11 +1803,13 @@ mod tests {
         let running_batch = storage.jobs().find(&batch_job.id).await.unwrap().unwrap();
         assert_eq!(running_batch.progress_current, 2);
         assert_eq!(running_batch.progress_total, 3);
-        assert!(storage
-            .jobs()
-            .complete(&batch_job.id, &serde_json::json!({ "drafts": [] }))
-            .await
-            .unwrap());
+        assert!(
+            storage
+                .jobs()
+                .complete(&batch_job.id, &serde_json::json!({ "drafts": [] }))
+                .await
+                .unwrap()
+        );
         let completed_batch = storage.jobs().find(&batch_job.id).await.unwrap().unwrap();
         assert_eq!(completed_batch.status, JobStatus::Succeeded);
         assert_eq!(completed_batch.progress_current, 3);
@@ -1777,9 +1834,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(novel_jobs.len(), 3);
-        assert!(novel_jobs
-            .iter()
-            .all(|job| job.novel_id.as_ref() == Some(&novel_id)));
+        assert!(
+            novel_jobs
+                .iter()
+                .all(|job| job.novel_id.as_ref() == Some(&novel_id))
+        );
 
         let source_jobs = storage
             .jobs()
@@ -1827,11 +1886,13 @@ mod tests {
             .create("write_chapter", Some(&novel_id), Some(8), &payload)
             .await
             .unwrap();
-        assert!(storage
-            .jobs()
-            .cancel(&cancel_job.id, "job cancelled by user")
-            .await
-            .unwrap());
+        assert!(
+            storage
+                .jobs()
+                .cancel(&cancel_job.id, "job cancelled by user")
+                .await
+                .unwrap()
+        );
         let cancelled = storage.jobs().find(&cancel_job.id).await.unwrap().unwrap();
         assert_eq!(cancelled.status, JobStatus::Cancelled);
         assert_eq!(cancelled.error.as_deref(), Some("job cancelled by user"));
@@ -1840,11 +1901,13 @@ mod tests {
         assert_eq!(cancelled.progress_total, 1);
 
         assert!(!storage.jobs().set_running(&cancel_job.id).await.unwrap());
-        assert!(!storage
-            .jobs()
-            .complete(&cancel_job.id, &serde_json::json!({ "ok": true }))
-            .await
-            .unwrap());
+        assert!(
+            !storage
+                .jobs()
+                .complete(&cancel_job.id, &serde_json::json!({ "ok": true }))
+                .await
+                .unwrap()
+        );
         let still_cancelled = storage.jobs().find(&cancel_job.id).await.unwrap().unwrap();
         assert_eq!(still_cancelled.status, JobStatus::Cancelled);
         assert!(still_cancelled.result.is_none());
@@ -1868,6 +1931,12 @@ mod tests {
                         "prompt_tokens": 10,
                         "completion_tokens": 5,
                         "total_tokens": 15
+                    }
+                },
+                "_model": {
+                    "pricing": {
+                        "prompt_cost_micro_usd_per_million_tokens": 1000000,
+                        "completion_cost_micro_usd_per_million_tokens": 2000000
                     }
                 }
             }),

@@ -25,7 +25,10 @@ use crate::domain::{
     ReviewReport, TargetPlatform,
 };
 use crate::error::{StorageError, WorkflowError};
-use crate::model::{ModelMetadata, ModelProvider, RigModelClient, SmokeModelClient};
+use crate::model::{
+    ModelClientWithMetadata, ModelMetadata, ModelPricing, ModelProvider, RigModelClient,
+    SmokeModelClient,
+};
 use crate::storage::{
     AgentRunRecord, AgentRunStatus, AgentRunStatusSummary, JobRecord, JobStatus, SqliteStorage,
 };
@@ -161,6 +164,7 @@ impl ModelRuntimeState {
             provider: provider.as_str().to_string(),
             model: settings.model,
             reasoning_effort: normalized_reasoning_effort(provider, settings.reasoning_effort),
+            pricing: normalized_pricing(settings.pricing),
         };
         let handle = model_handle_from_settings(provider, &settings);
         Ok(Self { handle, settings })
@@ -192,6 +196,7 @@ async fn update_model_settings(
         provider,
         model,
         reasoning_effort: request.reasoning_effort,
+        pricing: request.pricing,
     };
     let runtime = ModelRuntimeState::from_settings(settings)?;
     let response = runtime.settings.clone();
@@ -204,13 +209,17 @@ async fn current_model_handle(state: &ApiState) -> ModelHandle {
 }
 
 fn model_handle_from_settings(provider: ModelProvider, settings: &ModelSettings) -> ModelHandle {
-    match provider {
+    let inner: ModelHandle = match provider {
         ModelProvider::OpenAi | ModelProvider::DeepSeek => Arc::new(
             RigModelClient::new(provider, settings.model.clone())
                 .with_reasoning_effort(settings.reasoning_effort.clone()),
         ),
         ModelProvider::Smoke => Arc::new(SmokeModelClient::new(settings.model.clone())),
-    }
+    };
+    let metadata = ModelMetadata::new(provider.as_str(), settings.model.clone())
+        .with_reasoning_effort(settings.reasoning_effort.clone())
+        .with_pricing(settings.pricing.clone());
+    Arc::new(ModelClientWithMetadata::new(inner, metadata))
 }
 
 fn normalized_reasoning_effort(
@@ -224,6 +233,15 @@ fn normalized_reasoning_effort(
     reasoning_effort
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn normalized_pricing(pricing: Option<ModelPricing>) -> Option<ModelPricing> {
+    pricing.filter(|pricing| {
+        pricing.prompt_cost_micro_usd_per_million_tokens.is_some()
+            && pricing
+                .completion_cost_micro_usd_per_million_tokens
+                .is_some()
+    })
 }
 
 async fn list_jobs(
@@ -1643,6 +1661,7 @@ struct ModelSettings {
     provider: String,
     model: String,
     reasoning_effort: Option<String>,
+    pricing: Option<ModelPricing>,
 }
 
 impl ModelSettings {
@@ -1651,6 +1670,7 @@ impl ModelSettings {
             provider: metadata.provider,
             model: metadata.model,
             reasoning_effort: metadata.reasoning_effort,
+            pricing: metadata.pricing,
         }
     }
 }
@@ -1660,6 +1680,7 @@ struct ModelSettingsRequest {
     provider: String,
     model: String,
     reasoning_effort: Option<String>,
+    pricing: Option<ModelPricing>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1818,6 +1839,9 @@ struct AgentRunResponse {
     prompt_tokens: Option<u64>,
     completion_tokens: Option<u64>,
     total_tokens: Option<u64>,
+    prompt_cost_micro_usd: Option<u64>,
+    completion_cost_micro_usd: Option<u64>,
+    total_cost_micro_usd: Option<u64>,
     output_summary: String,
     structured: Value,
     raw_text: String,
@@ -1842,6 +1866,9 @@ impl AgentRunResponse {
             prompt_tokens: run.prompt_tokens(),
             completion_tokens: run.completion_tokens(),
             total_tokens: run.total_tokens(),
+            prompt_cost_micro_usd: run.prompt_cost_micro_usd(),
+            completion_cost_micro_usd: run.completion_cost_micro_usd(),
+            total_cost_micro_usd: run.total_cost_micro_usd(),
             output_summary: summarize_agent_run(run),
             structured: run.structured.clone(),
             raw_text: run.raw_text.clone(),
@@ -1977,6 +2004,31 @@ mod tests {
     use super::*;
     use crate::model::SmokeModelClient;
 
+    #[test]
+    fn normalized_pricing_requires_complete_costs() {
+        assert!(
+            normalized_pricing(Some(ModelPricing {
+                prompt_cost_micro_usd_per_million_tokens: Some(1_000_000),
+                completion_cost_micro_usd_per_million_tokens: None,
+            }))
+            .is_none()
+        );
+
+        let pricing = normalized_pricing(Some(ModelPricing {
+            prompt_cost_micro_usd_per_million_tokens: Some(1_000_000),
+            completion_cost_micro_usd_per_million_tokens: Some(2_000_000),
+        }))
+        .unwrap();
+        assert_eq!(
+            pricing.prompt_cost_micro_usd_per_million_tokens,
+            Some(1_000_000)
+        );
+        assert_eq!(
+            pricing.completion_cost_micro_usd_per_million_tokens,
+            Some(2_000_000)
+        );
+    }
+
     #[tokio::test]
     async fn api_can_create_and_read_smoke_project() {
         let db_path = std::env::temp_dir().join(format!("novel-agent-api-{}.db", Uuid::new_v4()));
@@ -2025,7 +2077,11 @@ mod tests {
                 json!({
                     "provider": "local",
                     "model": "smoke-runtime",
-                    "reasoning_effort": "ignored"
+                    "reasoning_effort": "ignored",
+                    "pricing": {
+                        "prompt_cost_micro_usd_per_million_tokens": 1000000,
+                        "completion_cost_micro_usd_per_million_tokens": 2000000
+                    }
                 }),
             ))
             .await
@@ -2041,6 +2097,11 @@ mod tests {
             Some("smoke-runtime")
         );
         assert!(update_model_json["model"]["reasoning_effort"].is_null());
+        assert_eq!(
+            update_model_json["model"]["pricing"]["prompt_cost_micro_usd_per_million_tokens"]
+                .as_u64(),
+            Some(1_000_000)
+        );
 
         let invalid_model_response = app
             .clone()
@@ -2892,6 +2953,13 @@ mod tests {
         assert_eq!(runs_json["summary"]["parse_error"].as_u64(), Some(0));
         assert!(runs_json["summary"]["tokenized_runs"].as_u64().unwrap() > 0);
         assert!(runs_json["summary"]["total_tokens"].as_u64().unwrap() > 0);
+        assert!(runs_json["summary"]["priced_runs"].as_u64().unwrap() > 0);
+        assert!(
+            runs_json["summary"]["total_cost_micro_usd"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
         assert!(runs_json["runs"].as_array().unwrap().iter().all(|run| {
             run["output_summary"]
                 .as_str()
@@ -2921,6 +2989,9 @@ mod tests {
                 && run["prompt_tokens"].as_u64().unwrap_or(0) > 0
                 && run["completion_tokens"].as_u64().unwrap_or(0) > 0
                 && run["total_tokens"].as_u64().unwrap_or(0) > 0
+                && run["prompt_cost_micro_usd"].as_u64().unwrap_or(0) > 0
+                && run["completion_cost_micro_usd"].as_u64().unwrap_or(0) > 0
+                && run["total_cost_micro_usd"].as_u64().unwrap_or(0) > 0
                 && run["status"].as_str() == Some("ok")
         }));
         assert_eq!(
@@ -3002,6 +3073,12 @@ mod tests {
                 > 0
         );
         assert!(run_detail_json["run"]["total_tokens"].as_u64().unwrap_or(0) > 0);
+        assert!(
+            run_detail_json["run"]["total_cost_micro_usd"]
+                .as_u64()
+                .unwrap_or(0)
+                > 0
+        );
 
         let agent_runs_alias_response = app
             .clone()
