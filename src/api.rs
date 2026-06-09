@@ -40,6 +40,7 @@ pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
         .route("/api/jobs/{job_id}", get(get_job))
         .route("/api/jobs/{job_id}/retry", post(retry_job))
         .route("/api/jobs/{job_id}/cancel", post(cancel_job))
+        .route("/api/runs", get(list_all_agent_runs))
         .route("/api/novels", get(list_novels).post(create_novel))
         .route("/api/novels/jobs", post(create_novel_job))
         .route("/api/novels/{novel_id}", get(get_novel))
@@ -671,7 +672,32 @@ async fn list_agent_runs(
 ) -> Result<Json<AgentRunsResponse>, ApiError> {
     let novel_id = NovelId::from(novel_id);
     ensure_novel_exists(&state.storage, &novel_id).await?;
-    let limit = capped_limit(query.limit, 20);
+    agent_runs_response(&state, Some(&novel_id), query, 20).await
+}
+
+async fn list_all_agent_runs(
+    State(state): State<ApiState>,
+    Query(query): Query<AgentRunsQuery>,
+) -> Result<Json<AgentRunsResponse>, ApiError> {
+    let novel_id = query
+        .novel_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|novel_id| !novel_id.is_empty())
+        .map(NovelId::from);
+    if let Some(novel_id) = &novel_id {
+        ensure_novel_exists(&state.storage, novel_id).await?;
+    }
+    agent_runs_response(&state, novel_id.as_ref(), query, 50).await
+}
+
+async fn agent_runs_response(
+    state: &ApiState,
+    novel_id: Option<&NovelId>,
+    query: AgentRunsQuery,
+    default_limit: u32,
+) -> Result<Json<AgentRunsResponse>, ApiError> {
+    let limit = capped_limit(query.limit, default_limit);
     let role = query
         .role
         .as_deref()
@@ -691,7 +717,7 @@ async fn list_agent_runs(
     let runs = state
         .storage
         .agent_runs()
-        .list_recent_filtered(Some(&novel_id), fetch_limit, role, task)
+        .list_recent_filtered(novel_id, fetch_limit, role, task)
         .await?;
     let runs = runs
         .into_iter()
@@ -1306,6 +1332,7 @@ struct JobsQuery {
 #[derive(Debug, Deserialize)]
 struct AgentRunsQuery {
     limit: Option<u32>,
+    novel_id: Option<String>,
     role: Option<String>,
     task: Option<String>,
     status: Option<String>,
@@ -2162,6 +2189,27 @@ mod tests {
             filtered_runs_json["summary"]["total"].as_u64(),
             Some(filtered_runs.len() as u64)
         );
+
+        let global_runs_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!(
+                    "/api/runs?limit=20&novel_id={novel_id}&role=writer&task=generate_chapter&status=ok"
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(global_runs_response.status(), StatusCode::OK);
+        let global_runs_json = response_json(global_runs_response).await;
+        let global_runs = global_runs_json["runs"].as_array().unwrap();
+        assert_eq!(global_runs.len(), filtered_runs.len());
+        assert!(global_runs.iter().all(|run| {
+            run["novel_id"].as_str() == Some(novel_id)
+                && run["role"].as_str() == Some("writer")
+                && run["task"].as_str() == Some("generate_chapter")
+                && run["status"].as_str() == Some("ok")
+        }));
 
         let invalid_run_status_response = app
             .oneshot(empty_request(

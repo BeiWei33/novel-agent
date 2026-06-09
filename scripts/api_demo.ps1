@@ -405,6 +405,14 @@ try {
     if ($null -ne $wrongWriterRun) {
         throw "Filtered AgentRun API returned unexpected role/task/status."
     }
+    $globalWriterRuns = Invoke-ApiJson "global filtered agent runs" "Get" "/api/runs?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&status=ok"
+    if ($globalWriterRuns.runs.Count -ne $writerRuns.runs.Count) {
+        throw "Global filtered AgentRun API returned different count from novel-scoped query."
+    }
+    $wrongGlobalRun = $globalWriterRuns.runs | Where-Object { $_.novel_id -ne $NovelId -or $_.role -ne "writer" -or $_.task -ne "generate_chapter" -or $_.status -ne "ok" } | Select-Object -First 1
+    if ($null -ne $wrongGlobalRun) {
+        throw "Global filtered AgentRun API returned unexpected novel/role/task/status."
+    }
 
     Write-Host "=== result ==="
     Write-Host "novel_id=$NovelId"

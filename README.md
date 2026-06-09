@@ -25,7 +25,7 @@
 - 支持通过 API 基于失败任务的 payload 创建重试 job，新 job 会用 `source_job_id` 指向源任务。
 - 支持通过 API 取消 `queued` / `running` 后台任务，取消终态不会被后台完成结果覆盖。
 - 支持批量章节写作 job，可一次提交章节范围并顺序生成多章，任务进度会按已完成章节数推进。
-- AgentRun summary 已包含状态、耗时和 token 汇总，并支持按 `role` / `task` / `status` 筛选，便于运行面板展示。
+- AgentRun summary 已包含状态、耗时和 token 汇总，并支持全局或按作品以 `role` / `task` / `status` 筛选，便于运行面板展示。
 
 交付验收入口见 [docs/MVP_ACCEPTANCE.md](docs/MVP_ACCEPTANCE.md)，REST API 见 [docs/API.md](docs/API.md)，接口冻结和协作规则见 [docs/INTERFACE_FREEZE.md](docs/INTERFACE_FREEZE.md)。
 

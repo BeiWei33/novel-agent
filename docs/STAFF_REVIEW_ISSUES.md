@@ -2059,3 +2059,43 @@ agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 to
 当前状态：
 
 - Web 工作台运行面板可以直接按 Agent 角色、任务类型和状态筛选运行记录，并获得对应筛选后的 summary。
+
+## 52. 开发者 A 第三十七轮处理记录
+
+处理日期：2026-06-09
+
+已处理：
+
+- A-P2：新增全局 `GET /api/runs`，支持 Web 工作台运行面板不依赖逐作品聚合即可读取最近 AgentRun。
+- A-P2：全局 runs 支持 `limit` / `novel_id` / `role` / `task` / `status` 可选筛选参数；作品内 `GET /api/novels/{novel_id}/runs` 保持兼容。
+- A-P2：`AgentRunsQuery` 增加 `novel_id`，复用同一 `agent_runs_response` 生成筛选结果和 summary，保证全局入口与作品入口状态统计口径一致。
+- A-P2：API smoke test 覆盖 `GET /api/runs?novel_id=...&role=writer&task=generate_chapter&status=ok`；API demo 覆盖 global filtered AgentRun 查询。
+- A/C 协作：README、`docs/API.md`、`docs/MVP_ACCEPTANCE.md`、`docs/INTERFACE_FREEZE.md`、`docs/WORKPLAN.md` 和 `scripts/api_demo.ps1` 已同步全局 AgentRun 查询入口。
+
+验证结果：
+
+```text
+cargo fmt
+ok
+
+cargo check
+Finished `dev` profile ... ok
+
+cargo test
+api/storage unit: 3 passed
+smoke tests: 14 passed
+
+powershell -ExecutionPolicy Bypass -File .\scripts\api_demo.ps1
+CORS / create / list / facts / write / continuity / review / SSE / jobs(filter + novel_id) / batch-jobs / retry-completed-400 / cancel-completed-400 / export / runs / filtered-runs / global-filtered-runs all ok
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+
+powershell -ExecutionPolicy Bypass -File .\scripts\mvp_demo.ps1 -StreamWrite
+write / rewrite stream output observed
+agent_run_summary total=23 ok=23 fallback=0 parse_error=0 duration_ms_total=0 tokenized_runs=23
+```
+
+当前状态：
+
+- Web 工作台可直接通过 `GET /api/runs` 构建全局运行面板，也可继续通过作品内 runs 接口查看单作品运行记录。

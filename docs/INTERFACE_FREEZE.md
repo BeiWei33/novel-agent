@@ -125,6 +125,7 @@ REST API：
 ```text
 serve --bind 127.0.0.1:3001 -> docs/API.md 中的 /api/novels/... 路径
 ```
+GET /api/runs?limit=<n>&novel_id=<novel_id>&role=<role>&task=<task>&status=<status>
 
 REST Jobs API：
 
@@ -148,7 +149,7 @@ POST /api/jobs/{job_id}/cancel
 `cancel` 只接受 `queued` / `running` 源任务，并把任务标记为终态 `cancelled`；后续后台完成或失败写回不得覆盖取消终态。
 批量章节写作 job 路径为 `POST /api/novels/{novel_id}/chapters/write/jobs`，请求字段固定为 `chapter_start` / `chapter_end`。该 job 的 `kind` 为 `write_chapters`，`chapter_index` 为 `null`，`progress_total` 为章节数量，`payload` 保存 `chapter_start`、`chapter_end` 和 `chapter_indexes`，成功 `result` 固定包含 `chapter_start`、`chapter_end` 和 `drafts`。批量写作按章节顺序复用单章 workflow，任一章节完成后推进 `progress_current`；任一章节失败则 job 进入 `failed` 并保留当前进度，已保存章节保留。
 `GET /api/novels/{novel_id}/facts` 返回作品事实列表，支持 `limit`；`GET /api/novels/{novel_id}/chapters/{chapter_index}/continuity` 返回该章节最新连续性报告，报告内容保持 Continuity Agent 结构化 JSON。
-`GET /api/novels/{novel_id}/runs` 支持 `limit` / `role` / `task` / `status` 可选筛选参数；`status` 固定为 `ok`、`fallback`、`parse_error`，非法值必须返回 `400 Bad Request`，`summary` 按筛选后的 runs 计算。
+`GET /api/runs` 支持全局 AgentRun 查询，可选 `novel_id` / `role` / `task` / `status` / `limit`；`GET /api/novels/{novel_id}/runs` 支持作品内 `limit` / `role` / `task` / `status` 查询。`status` 固定为 `ok`、`fallback`、`parse_error`，非法值必须返回 `400 Bad Request`，`summary` 按筛选后的 runs 计算。
 
 SSE API：
 

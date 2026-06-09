@@ -65,6 +65,7 @@ API smoke test 已覆盖：
 - API 单元测试额外覆盖批量章节 job 成功返回 `drafts` 和 `progress_current/progress_total`、failed 批量章节 job retry 创建带 `source_job_id` 的新 job 并执行成功、queued job cancel 进入 `cancelled`、已完成 job cancel 返回 400；API demo 覆盖批量章节 job 进度、非 failed job retry 和 completed job cancel 返回 400。
 - Storage 单元测试额外覆盖旧 `api_jobs` 表补 `payload` / `source_job_id` / progress 列、批量进度推进、取消终态不被 running/complete 写回覆盖，以及 `serve` 启动前可将遗留未完成 job 标为 `failed`。
 - `GET /api/novels/{novel_id}/export/markdown`
+- `GET /api/runs?limit=20&novel_id=<novel_id>&role=writer&task=generate_chapter&status=ok`
 - `GET /api/novels/{novel_id}/runs?limit=50`
 - `GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&status=ok`
 - CORS preflight
