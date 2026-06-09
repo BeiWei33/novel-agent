@@ -474,6 +474,10 @@ try {
     if ($aliasRunDetail.run.id -ne $RunId) {
         throw "AgentRun alias detail API returned wrong run."
     }
+    $runsStream = Invoke-ApiText "agent runs stream" "Get" "/api/agent-runs/stream?limit=20&novel_id=$NovelId&role=writer&task=generate_chapter&status=ok"
+    if ($runsStream.Content -notmatch "event: snapshot" -or $runsStream.Content -notmatch $RunId -or $runsStream.Content -notmatch "event: completed") {
+        throw "AgentRun stream API did not include snapshot and completed events."
+    }
 
     Write-Host "=== result ==="
     Write-Host "novel_id=$NovelId"

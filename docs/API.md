@@ -489,13 +489,15 @@ GET /api/novels/{novel_id}/export/markdown
 GET /api/runs?limit=50
 GET /api/runs?limit=50&novel_id=...&role=writer&task=generate_chapter&status=ok
 GET /api/runs/{run_id}
+GET /api/runs/stream?limit=50
 GET /api/agent-runs?limit=50
 GET /api/agent-runs/{run_id}
+GET /api/agent-runs/stream?limit=50
 GET /api/novels/{novel_id}/runs?limit=20
 GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&status=ok
 ```
 
-全局 `GET /api/runs` 可选传 `novel_id`；`GET /api/agent-runs` 是给 Web 工作台保留的兼容别名，查询参数和响应与 `/api/runs` 相同。作品内 `GET /api/novels/{novel_id}/runs` 固定查当前作品。`role` / `task` / `status` 均为可选筛选参数。`status` 必须是 `ok`、`fallback`、`parse_error` 之一；非法值返回 `400 Bad Request`。`summary` 基于筛选后的 `runs` 计算。
+全局 `GET /api/runs` 可选传 `novel_id`；`GET /api/agent-runs` 是给 Web 工作台保留的兼容别名，查询参数和响应与 `/api/runs` 相同。`/stream` 入口使用同一组查询参数，返回当前筛选结果的 SSE 快照事件，适合 Web 工作台用 fetch-SSE 或重连方式刷新运行面板。作品内 `GET /api/novels/{novel_id}/runs` 固定查当前作品。`role` / `task` / `status` 均为可选筛选参数。`status` 必须是 `ok`、`fallback`、`parse_error` 之一；非法值返回 `400 Bad Request`。`summary` 基于筛选后的 `runs` 计算。
 
 响应：
 
@@ -538,4 +540,14 @@ GET /api/novels/{novel_id}/runs?limit=20&role=writer&task=generate_chapter&statu
 {
   "run": {}
 }
+```
+
+流式快照：
+
+```text
+event: snapshot
+data: {"runs":[],"summary":{}}
+
+event: completed
+data: {"total":0}
 ```

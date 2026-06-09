@@ -41,8 +41,10 @@ pub fn router(storage: SqliteStorage, model: ModelHandle) -> Router {
         .route("/api/jobs/{job_id}/retry", post(retry_job))
         .route("/api/jobs/{job_id}/cancel", post(cancel_job))
         .route("/api/runs", get(list_all_agent_runs))
+        .route("/api/runs/stream", get(stream_all_agent_runs))
         .route("/api/runs/{run_id}", get(get_agent_run))
         .route("/api/agent-runs", get(list_all_agent_runs))
+        .route("/api/agent-runs/stream", get(stream_all_agent_runs))
         .route("/api/agent-runs/{run_id}", get(get_agent_run))
         .route("/api/novels", get(list_novels).post(create_novel))
         .route("/api/novels/jobs", post(create_novel_job))
@@ -772,6 +774,23 @@ async fn get_agent_run(
     }))
 }
 
+async fn stream_all_agent_runs(
+    State(state): State<ApiState>,
+    Query(query): Query<AgentRunsQuery>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let novel_id = query
+        .novel_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|novel_id| !novel_id.is_empty())
+        .map(NovelId::from);
+    if let Some(novel_id) = &novel_id {
+        ensure_novel_exists(&state.storage, novel_id).await?;
+    }
+    let Json(report) = agent_runs_response(&state, novel_id.as_ref(), query, 50).await?;
+    Ok(Sse::new(agent_runs_sse_stream(report)).keep_alive(KeepAlive::default()))
+}
+
 async fn agent_runs_response(
     state: &ApiState,
     novel_id: Option<&NovelId>,
@@ -897,6 +916,16 @@ fn draft_sse_stream(
         }),
     ));
     stream::iter(events)
+}
+
+fn agent_runs_sse_stream(
+    report: AgentRunsResponse,
+) -> impl Stream<Item = Result<Event, Infallible>> {
+    let total = report.summary.total;
+    stream::iter(vec![
+        sse_json("snapshot", json!(report)),
+        sse_json("completed", json!({ "total": total })),
+    ])
 }
 
 fn sse_json(event: &'static str, data: Value) -> Result<Event, Infallible> {
@@ -2502,6 +2531,29 @@ mod tests {
             agent_run_alias_detail_json["run"]["id"].as_str(),
             Some(first_run_id)
         );
+
+        let agent_runs_stream_response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!(
+                    "/api/agent-runs/stream?limit=20&novel_id={novel_id}&role=writer&task=generate_chapter&status=ok"
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(agent_runs_stream_response.status(), StatusCode::OK);
+        assert!(agent_runs_stream_response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("text/event-stream"));
+        let agent_runs_stream_text = response_text(agent_runs_stream_response).await;
+        assert!(agent_runs_stream_text.contains("event: snapshot"));
+        assert!(agent_runs_stream_text.contains(first_run_id));
+        assert!(agent_runs_stream_text.contains("event: completed"));
 
         let missing_run_response = app
             .clone()
