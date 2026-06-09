@@ -26,6 +26,7 @@ export function NewNovelForm({
   const [targetPlatform, setTargetPlatform] = useState<TargetPlatform>("fanqie");
   const [targetWords, setTargetWords] = useState(1_200_000);
   const [chapterWords, setChapterWords] = useState(2600);
+  const [targetChapters, setTargetChapters] = useState(30);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,6 +40,7 @@ export function NewNovelForm({
       target_platform: targetPlatform,
       target_words: targetWords,
       chapter_words: chapterWords,
+      target_chapters: targetChapters,
     };
   }
 
@@ -63,6 +65,18 @@ export function NewNovelForm({
               </option>
             ))}
           </select>
+        </label>
+        <label className="block space-y-2">
+          <span className="field-label">规划章节数</span>
+          <input
+            type="number"
+            min={1}
+            max={300}
+            step={1}
+            value={targetChapters}
+            onChange={(event) => setTargetChapters(Number(event.target.value))}
+            className="input"
+          />
         </label>
         <label className="block space-y-2">
           <span className="field-label">目标字数</span>

@@ -17,6 +17,7 @@ import { VersionDiffPanel } from "../features/chapters/VersionDiffPanel";
 import { OperationTimeline } from "../features/chapters/OperationTimeline";
 import { MarkdownPreview } from "../features/chapters/MarkdownPreview";
 import { DraftDiffPanel } from "../features/chapters/DraftDiffPanel";
+import { QualityPanel } from "../features/chapters/QualityPanel";
 import { PageHeader } from "../components/PageHeader";
 import { LoadingState } from "../components/LoadingState";
 import { Badge } from "../components/ui/Badge";
@@ -25,12 +26,13 @@ import { Section } from "../components/ui/Section";
 import { StatusBanner } from "../components/StatusBanner";
 import { Tabs } from "../components/ui/Tabs";
 
-type RightPanel = "outline" | "review" | "agent";
+type RightPanel = "outline" | "review" | "quality" | "agent";
 type EditorView = "edit" | "preview" | "diff";
 
 const panelTabs: Array<{ value: RightPanel; label: string }> = [
   { value: "outline", label: "大纲" },
   { value: "review", label: "审稿" },
+  { value: "quality", label: "质量" },
   { value: "agent", label: "Agent" },
 ];
 
@@ -409,6 +411,16 @@ export function ChapterEditorPage() {
                 onRewrite={() => rewriteMutation.mutate()}
                 reviewPending={reviewMutation.isPending}
                 rewritePending={rewriteMutation.isPending}
+              />
+            ) : null}
+            {rightPanel === "quality" ? (
+              <QualityPanel
+                chapter={chapter}
+                report={reviewQuery.data}
+                reviewLoading={reviewQuery.isLoading}
+                continuityReport={continuityQuery.data}
+                continuityLoading={continuityQuery.isLoading}
+                runs={runsQuery.data ?? []}
               />
             ) : null}
             {rightPanel === "agent" ? (

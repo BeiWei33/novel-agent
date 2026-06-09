@@ -59,7 +59,7 @@ export function JobTable({
                 <JobProgress job={job} />
               </td>
               <td className="px-3 py-3 text-slate-600">{job.novel_id ?? "-"}</td>
-              <td className="px-3 py-3 text-right tabular-nums">{job.chapter_index ?? "-"}</td>
+              <td className="px-3 py-3 text-right tabular-nums">{jobChapterLabel(job)}</td>
               <td className="max-w-[280px] truncate px-3 py-3 text-slate-500">{job.error ?? "-"}</td>
               <td className="px-4 py-3">
                 <div className="flex justify-end gap-2">
@@ -134,4 +134,37 @@ export function jobStatusTone(status: ApiJobStatus): "slate" | "teal" | "amber" 
 
 function canCancelJob(job: ApiJob): boolean {
   return job.status === "queued" || job.status === "running";
+}
+
+export function jobChapterLabel(job: ApiJob): string {
+  if (typeof job.chapter_index === "number") {
+    return String(job.chapter_index);
+  }
+  const indexes = job.payload.chapter_indexes;
+  if (Array.isArray(indexes)) {
+    const numericIndexes = indexes
+      .map(toChapterIndex)
+      .filter((value): value is number => typeof value === "number")
+      .sort((a, b) => a - b);
+    if (numericIndexes.length === 1) {
+      return String(numericIndexes[0]);
+    }
+    if (numericIndexes.length > 1) {
+      return `${numericIndexes[0]}-${numericIndexes[numericIndexes.length - 1]}`;
+    }
+  }
+  const start = toChapterIndex(job.payload.chapter_start);
+  const end = toChapterIndex(job.payload.chapter_end);
+  if (start && end) {
+    return start === end ? String(start) : `${start}-${end}`;
+  }
+  return "-";
+}
+
+function toChapterIndex(value: unknown): number | null {
+  const numberValue = typeof value === "number" ? value : typeof value === "string" ? Number.parseInt(value, 10) : Number.NaN;
+  if (!Number.isInteger(numberValue) || numberValue < 1) {
+    return null;
+  }
+  return numberValue;
 }

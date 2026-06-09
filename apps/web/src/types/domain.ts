@@ -390,4 +390,5 @@ export interface CreateNovelInput {
   target_platform: TargetPlatform;
   target_words: number;
   chapter_words: number;
+  target_chapters: number;
 }

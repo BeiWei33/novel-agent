@@ -541,9 +541,13 @@ function createNovelRequest(input: CreateNovelInput): Record<string, unknown> {
   return {
     idea: input.idea,
     platform: input.target_platform,
-    chapters: Math.max(1, Math.round(input.target_words / Math.max(1, input.chapter_words))),
+    chapters: normalizeRequestedChapters(input.target_chapters),
     outline_batch_size: 5,
   };
+}
+
+function normalizeRequestedChapters(value: number): number {
+  return Math.max(1, Math.min(300, Math.round(value || 30)));
 }
 
 function chapterJobOperation(kind: ChapterJobKind): "write" | "review" | "rewrite" {
@@ -915,6 +919,7 @@ export const api = {
   },
 
   async createNovel(input: CreateNovelInput): Promise<Novel> {
+    const requestedChapters = normalizeRequestedChapters(input.target_chapters);
     if (!useMock) {
       const payload = await request<CreateNovelResponse>("/api/novels", {
         method: "POST",
@@ -939,7 +944,7 @@ export const api = {
         novel_id: generated.novel.id,
         role: "market",
         task: "create_novel",
-        output_summary: `创建《${generated.novel.title}》并生成基础圣经与 30 章大纲。`,
+        output_summary: `创建《${generated.novel.title}》并生成基础圣经与 ${requestedChapters} 章大纲。`,
       }),
     );
     return clone(generated.novel);

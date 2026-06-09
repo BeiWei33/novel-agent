@@ -9,7 +9,7 @@ import { PageHeader } from "../components/PageHeader";
 import { StatusBanner } from "../components/StatusBanner";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
-import { JobTable, jobStatusTone } from "../features/jobs/JobTable";
+import { JobTable, jobChapterLabel, jobStatusTone } from "../features/jobs/JobTable";
 import { api, queryKeys } from "../lib/api";
 import type { JobListOptions } from "../lib/api";
 import { formatDateTime, jobKindLabels, jobStatusLabels } from "../lib/format";
@@ -243,7 +243,26 @@ export function JobsPage() {
                 />
               </div>
             )}
-            <JobDetail job={activeJob} />
+            <JobDetail
+              job={activeJob}
+              onFilterNovel={(novelId) => {
+                setNovelIdFilter(novelId);
+                setSelectedJobId(null);
+                updateSearch({ novelId, jobId: null });
+              }}
+              onFilterSource={(jobId) => {
+                setSourceJobIdFilter(jobId);
+                setSelectedJobId(null);
+                updateSearch({ sourceJobId: jobId, jobId: null });
+              }}
+              onOpenJob={(jobId) => {
+                setStatusFilter("all");
+                setKindFilter("all");
+                setSourceJobIdFilter("");
+                setSelectedJobId(jobId);
+                updateSearch({ status: "all", kind: "all", sourceJobId: "", jobId });
+              }}
+            />
           </div>
         </>
       ) : null}
@@ -391,7 +410,17 @@ function FilterInput({
   );
 }
 
-function JobDetail({ job }: { job: ApiJob | null }) {
+function JobDetail({
+  job,
+  onFilterNovel,
+  onFilterSource,
+  onOpenJob,
+}: {
+  job: ApiJob | null;
+  onFilterNovel: (novelId: string) => void;
+  onFilterSource: (jobId: string) => void;
+  onOpenJob: (jobId: string) => void;
+}) {
   if (!job) {
     return <aside className="border-l border-line bg-slate-50 p-4 text-sm text-slate-500">暂无后台任务</aside>;
   }
@@ -408,7 +437,7 @@ function JobDetail({ job }: { job: ApiJob | null }) {
         </div>
         <dl className="grid grid-cols-2 gap-3 text-xs">
           <DetailItem label="novel_id" value={job.novel_id ?? "-"} />
-          <DetailItem label="章节" value={job.chapter_index ? String(job.chapter_index) : "-"} />
+          <DetailItem label="章节" value={jobChapterLabel(job)} />
           <DetailItem label="源任务" value={job.source_job_id ?? "-"} />
           <DetailItem label="进度" value={`${job.progress_current ?? 0} / ${job.progress_total ?? 1}`} />
           <DetailItem label="创建" value={formatDateTime(job.created_at)} />
@@ -416,12 +445,46 @@ function JobDetail({ job }: { job: ApiJob | null }) {
         </dl>
       </div>
       <div className="space-y-4 p-4">
+        <JobQuickActions job={job} onFilterNovel={onFilterNovel} onFilterSource={onFilterSource} onOpenJob={onOpenJob} />
         {job.error ? <DetailBlock title="错误信息" value={job.error} tone="danger" /> : null}
         <JsonBlock title="payload" value={job.payload} />
         <JobResultLink job={job} />
         <JsonBlock title="result" value={job.result ?? null} />
       </div>
     </aside>
+  );
+}
+
+function JobQuickActions({
+  job,
+  onFilterNovel,
+  onFilterSource,
+  onOpenJob,
+}: {
+  job: ApiJob;
+  onFilterNovel: (novelId: string) => void;
+  onFilterSource: (jobId: string) => void;
+  onOpenJob: (jobId: string) => void;
+}) {
+  const novelId = job.novel_id;
+  const sourceJobId = job.source_job_id;
+
+  return (
+    <div className="grid gap-2">
+      {novelId ? (
+        <Button variant="secondary" className="w-full" onClick={() => onFilterNovel(novelId)}>
+          只看当前作品任务
+        </Button>
+      ) : null}
+      <Button variant="secondary" className="w-full" onClick={() => onFilterSource(job.id)}>
+        查看由它创建的重试任务
+      </Button>
+      {sourceJobId ? (
+        <Button variant="ghost" className="w-full" onClick={() => onOpenJob(sourceJobId)}>
+          打开源任务
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

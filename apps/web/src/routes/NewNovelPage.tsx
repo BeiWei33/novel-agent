@@ -32,7 +32,7 @@ export function NewNovelPage() {
     <div>
       <PageHeader title="新建作品" />
       {createMutation.isPending ? (
-        <StatusBanner title="正在创建小说">正在生成小说圣经、人物卡和 30 章 mock 大纲。</StatusBanner>
+        <StatusBanner title="正在创建小说">正在生成小说圣经、人物卡和规划章节大纲。</StatusBanner>
       ) : null}
       {createJobMutation.isPending ? (
         <StatusBanner title="正在提交后台创建任务">任务创建成功后会进入任务队列。</StatusBanner>

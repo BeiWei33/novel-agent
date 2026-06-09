@@ -16,6 +16,7 @@ import { countWords } from "./format";
 
 const baseTime = new Date("2026-06-09T08:00:00+08:00").getTime();
 const DEMO_NOVEL_ID = "urban_rebirth_fanqie_demo";
+const PROMPT_BUNDLE = "b-quality-2026-06-10-v0.3-guard";
 
 function minutesAgo(minutes: number): string {
   return new Date(baseTime - minutes * 60_000).toISOString();
@@ -870,7 +871,7 @@ function makeAgentRuns(): AgentRun[] {
           platform: "fanqie",
           first_conflict: "暴雨外卖站甩锅",
         },
-        _engineering: { duration_ms: 720 },
+        _engineering: { duration_ms: 720, prompt_bundle: PROMPT_BUNDLE },
       },
       raw_text: "",
       raw_notes: "mock market brief",
@@ -898,7 +899,7 @@ function makeAgentRuns(): AgentRun[] {
           chapters: 30,
           sections: ["暴雨回站", "片区试点", "对手加码", "本地生活入口"],
         },
-        _engineering: { duration_ms: 1360 },
+        _engineering: { duration_ms: 1360, prompt_bundle: PROMPT_BUNDLE },
       },
       raw_text: "",
       raw_notes: "mock plot output",
@@ -923,7 +924,7 @@ function makeAgentRuns(): AgentRun[] {
       output_summary: "生成林舟、许蔓、周启明、陈岳 4 个核心人物。",
       structured: {
         characters: ["林舟", "许蔓", "周启明", "陈岳"],
-        _engineering: { duration_ms: 860 },
+        _engineering: { duration_ms: 860, prompt_bundle: PROMPT_BUNDLE },
       },
       raw_text: "",
       raw_notes: "mock character output mapped to create_novel task",
@@ -948,7 +949,7 @@ function makeAgentRuns(): AgentRun[] {
       output_summary: "生成第 1 章《暴雨回站》，约 2200 字。",
       structured: {
         chapter_draft: { chapter_index: 1, title: "暴雨回站" },
-        _engineering: { duration_ms: 1280 },
+        _engineering: { duration_ms: 1280, prompt_bundle: PROMPT_BUNDLE },
       },
       raw_text: "",
       raw_notes: "mock writer output",
@@ -971,7 +972,7 @@ function makeAgentRuns(): AgentRun[] {
       completion_cost_micro_usd: 920,
       total_cost_micro_usd: 1900,
       output_summary: "审稿总分 84，通过，建议局部压缩调度解释。",
-      structured: { review_report: { total_score: 84, passed: true }, _engineering: { duration_ms: 940 } },
+      structured: { review_report: { total_score: 84, passed: true }, _engineering: { duration_ms: 940, prompt_bundle: PROMPT_BUNDLE } },
       raw_text: "",
       raw_notes: "mock reviewer report",
       parse_error: null,
@@ -999,10 +1000,10 @@ function makeAgentRuns(): AgentRun[] {
           rewrite_type: "partial",
           major_issues: ["即时压力不足", "谈判偏顺", "章尾方向宣言"],
         },
-        _engineering: { duration_ms: 1180, will_fallback: true },
+        _engineering: { duration_ms: 1180, will_fallback: true, prompt_bundle: PROMPT_BUNDLE },
       },
       raw_text: "",
-      raw_notes: "negative baseline sample before b-quality-2026-06-09-r3",
+      raw_notes: `negative baseline sample before ${PROMPT_BUNDLE}`,
       parse_error: null,
       created_at: minutesAgo(120),
     },
@@ -1011,6 +1012,26 @@ function makeAgentRuns(): AgentRun[] {
 
 function makeApiJobs(): ApiJob[] {
   return [
+    {
+      id: "job-004",
+      kind: "write_chapters",
+      status: "running",
+      novel_id: DEMO_NOVEL_ID,
+      chapter_index: null,
+      source_job_id: null,
+      progress_current: 2,
+      progress_total: 5,
+      payload: {
+        novel_id: DEMO_NOVEL_ID,
+        chapter_start: 4,
+        chapter_end: 8,
+        chapter_indexes: [4, 5, 6, 7, 8],
+      },
+      result: null,
+      error: null,
+      created_at: minutesAgo(11),
+      updated_at: minutesAgo(1),
+    },
     {
       id: "job-003",
       kind: "rewrite_chapter",
@@ -1138,6 +1159,7 @@ export function makeNewNovel(input: {
   idea: string;
   genre: string;
   target_platform: TargetPlatform;
+  target_chapters: number;
 }): {
   novel: Novel;
   bible: NovelBible;
@@ -1160,13 +1182,18 @@ export function makeNewNovel(input: {
   };
   const bible = makeBible(novel);
   bible.premise = input.idea.trim() || bible.premise;
+  const chapterCount = Math.max(1, Math.min(300, Math.round(input.target_chapters || 30)));
+  const outlines = makeOutlines(novel).slice(0, chapterCount);
+  const chapters = makeChapters(novel)
+    .slice(0, chapterCount)
+    .map((chapter) => ({ ...chapter, content: null, summary: null, status: "outlined" as const, score: null, word_count: 0, version: 0 }));
   return {
     novel,
     bible,
     characters: makeCharacters(novel),
     worldSetting: makeWorldSetting(novel),
-    outlines: makeOutlines(novel),
-    chapters: makeChapters(novel).map((chapter) => ({ ...chapter, content: null, summary: null, status: "outlined", score: null, word_count: 0, version: 0 })),
+    outlines,
+    chapters,
     facts: makeFacts(novel, []),
   };
 }
@@ -1202,7 +1229,7 @@ export function makeRuntimeAgentRun(input: Pick<AgentRun, "novel_id" | "role" | 
     completion_cost_micro_usd: completionTokens * 2,
     total_cost_micro_usd: promptTokens + completionTokens * 2,
     output_summary: input.output_summary,
-    structured: { _engineering: { will_fallback: false } },
+    structured: { _engineering: { will_fallback: false, prompt_bundle: PROMPT_BUNDLE } },
     raw_text: "",
     raw_notes: "mock runtime operation",
     parse_error: null,

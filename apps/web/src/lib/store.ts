@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-type WorkspacePanel = "outline" | "review" | "agent";
+type WorkspacePanel = "outline" | "review" | "quality" | "agent";
 export type ProgressKind = "write" | "review" | "rewrite" | "save";
 export type ProgressStatus = "running" | "success" | "error";
 export type EditorDensity = "comfortable" | "compact";
